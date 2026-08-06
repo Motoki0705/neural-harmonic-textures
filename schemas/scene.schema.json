@@ -1,0 +1,91 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/neural-harmonic-textures/scene.schema.json",
+  "title": "NHT standard scene",
+  "type": "object",
+  "required": [
+    "schema",
+    "scene_id",
+    "camera_coordinate_convention",
+    "scene_coordinate_convention",
+    "pixel_coordinate_convention",
+    "image_resolution_semantics",
+    "camera_count",
+    "cameras",
+    "point_cloud",
+    "image_root",
+    "model_root",
+    "scene_from_sfm",
+    "normalization",
+    "sfm_summary",
+    "nht_training_summary",
+    "capabilities"
+  ],
+  "properties": {
+    "schema": {"const": "nht_standard_scene_v1"},
+    "scene_id": {"type": "string", "minLength": 1},
+    "camera_coordinate_convention": {"type": "string", "minLength": 1},
+    "scene_coordinate_convention": {"type": "string", "minLength": 1},
+    "pixel_coordinate_convention": {"type": "string", "minLength": 1},
+    "image_resolution_semantics": {"type": "string", "minLength": 1},
+    "camera_count": {"type": "integer", "minimum": 1},
+    "cameras": {"const": "cameras.json"},
+    "point_cloud": {
+      "type": "object",
+      "required": ["path", "shape", "dtype", "columns", "color_range"],
+      "properties": {
+        "path": {"const": "points_scene.npy"},
+        "shape": {
+          "type": "array",
+          "prefixItems": [
+            {"type": "integer", "minimum": 0},
+            {"const": 6}
+          ],
+          "items": false,
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "dtype": {"const": "float32"},
+        "columns": {
+          "const": ["x", "y", "z", "red", "green", "blue"]
+        },
+        "color_range": {"const": [0.0, 1.0]}
+      },
+      "additionalProperties": false
+    },
+    "image_root": {"const": "images"},
+    "model_root": {"const": "model"},
+    "scene_from_sfm": {"$ref": "#/$defs/matrix4"},
+    "normalization": {
+      "type": "object",
+      "required": ["applied", "transform"],
+      "properties": {
+        "applied": {"type": "boolean"},
+        "transform": {"$ref": "#/$defs/matrix4"}
+      },
+      "additionalProperties": false
+    },
+    "sfm_summary": {"type": "object"},
+    "nht_training_summary": {"type": "object"},
+    "capabilities": {
+      "type": "array",
+      "uniqueItems": true,
+      "contains": {"const": "nht_rendering_model"},
+      "items": {"type": "string"}
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "matrix4": {
+      "type": "array",
+      "minItems": 4,
+      "maxItems": 4,
+      "items": {
+        "type": "array",
+        "minItems": 4,
+        "maxItems": 4,
+        "items": {"type": "number"}
+      }
+    }
+  }
+}

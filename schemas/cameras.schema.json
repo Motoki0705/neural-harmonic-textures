@@ -1,0 +1,86 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/neural-harmonic-textures/cameras.schema.json",
+  "title": "NHT standard cameras",
+  "type": "object",
+  "required": [
+    "schema",
+    "camera_coordinate_convention",
+    "transform_semantics",
+    "cameras"
+  ],
+  "properties": {
+    "schema": {"const": "nht_standard_cameras_v1"},
+    "camera_coordinate_convention": {"type": "string", "minLength": 1},
+    "transform_semantics": {"type": "string", "minLength": 1},
+    "cameras": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/camera"}
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "matrix3": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "items": {
+        "type": "array",
+        "minItems": 3,
+        "maxItems": 3,
+        "items": {"type": "number"}
+      }
+    },
+    "matrix4": {
+      "type": "array",
+      "minItems": 4,
+      "maxItems": 4,
+      "items": {
+        "type": "array",
+        "minItems": 4,
+        "maxItems": 4,
+        "items": {"type": "number"}
+      }
+    },
+    "camera": {
+      "type": "object",
+      "required": [
+        "camera_id",
+        "source_frame_index",
+        "time_seconds",
+        "image",
+        "width",
+        "height",
+        "intrinsics",
+        "camera_to_scene",
+        "group"
+      ],
+      "properties": {
+        "camera_id": {"type": "string", "minLength": 1},
+        "source_frame_index": {"type": "integer", "minimum": 0},
+        "time_seconds": {"type": "number", "minimum": 0},
+        "image": {"type": "string", "pattern": "^images/"},
+        "width": {"type": "integer", "minimum": 1},
+        "height": {"type": "integer", "minimum": 1},
+        "intrinsics": {
+          "type": "object",
+          "required": ["model", "params", "matrix"],
+          "properties": {
+            "model": {"type": "string", "minLength": 1},
+            "params": {
+              "type": "array",
+              "minItems": 1,
+              "items": {"type": "number"}
+            },
+            "matrix": {"$ref": "#/$defs/matrix3"}
+          },
+          "additionalProperties": false
+        },
+        "camera_to_scene": {"$ref": "#/$defs/matrix4"},
+        "group": {"type": "string", "minLength": 1}
+      },
+      "additionalProperties": false
+    }
+  }
+}

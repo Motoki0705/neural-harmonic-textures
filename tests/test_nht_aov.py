@@ -35,7 +35,8 @@ import tempfile
 from typing import Dict, Optional, Tuple
 
 import pytest
-import torch
+
+torch = pytest.importorskip("torch", reason="NHT AOV tests require the aov extra")
 import torch.nn.functional as F
 from pathlib import Path
 from torch import Tensor

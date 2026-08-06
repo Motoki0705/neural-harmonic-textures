@@ -1,0 +1,56 @@
+schema: nht_sfm_scene_inventory_v1
+scenes:
+  - id: tennis-court-base
+    source: data/tennis_court.mp4
+    provenance: supplied capture
+    status: measured_end_to_end
+    challenges:
+      - long_video
+      - repetitive_court_texture
+      - multiple_courts
+      - motion_blur
+      - illumination_and_autofocus_change
+      - possible_rolling_shutter
+  - id: tennis-court-blur-lowlight
+    source: derived from supplied capture by scripts/build_sfm_benchmarks.sh
+    provenance: deterministic stress transform, not an independent capture
+    status: measured_sfm_accepted_primary
+    challenges: [motion_blur, illumination_change]
+    result:
+      selected: sift-incremental
+      registered_images: 60
+      supported_registered_images: 60
+      sparse_points: 20935
+  - id: tennis-court-zoom
+    source: derived from supplied capture by scripts/build_sfm_benchmarks.sh
+    provenance: deterministic digital-zoom stress transform, not optical zoom
+    status: measured_sfm_accepted_primary
+    challenges: [apparent_focal_change, repetitive_court_texture]
+    result:
+      selected: sift-incremental
+      registered_images: 60
+      supported_registered_images: 60
+      sparse_points: 22708
+  - id: tennis-court-dynamic-occlusion
+    source: derived from supplied capture by scripts/build_sfm_benchmarks.sh
+    provenance: deterministic moving-occluder stress transform, not real players
+    status: measured_sfm_rejected_all
+    challenges: [dynamic_objects, repetitive_court_texture]
+    result:
+      interpretation: paired control also failed; occlusion effect is inconclusive
+      sift_registered_images: 2
+      aliked_registered_images: 3
+  - id: tennis-court-dynamic-control
+    source: unmodified 360-420 second segment from supplied capture
+    provenance: deterministic time crop, control for dynamic-occlusion transform
+    status: measured_sfm_rejected_all
+    challenges: [repetitive_court_texture, low_parallax_pan, source_motion]
+    result:
+      interpretation: low-parallax rotation over planar repetitive courts
+      sift_registered_images: 3
+      aliked_registered_images: 3
+gaps:
+  - independent low-parallax capture
+  - real players or spectators
+  - optical zoom or autofocus-induced focal change
+  - different venue, device, weather and illumination
