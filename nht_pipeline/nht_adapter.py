@@ -211,6 +211,10 @@ def _run_training(args: argparse.Namespace) -> None:
     }
     cfg = trainer.tyro.extras.overridable_config_cli(configs)
     cfg.adjust_steps(cfg.steps_scaler)
+    if cfg.camera_model != "pinhole":
+        raise ValueError("The standard renderer requires camera_model=pinhole")
+    if bool(cfg.pose_opt):
+        raise ValueError("The standard renderer requires pose_opt=false")
     if cfg.post_processing is not None:
         raise ValueError(
             "The standard renderer currently requires NHT post_processing=null"
@@ -220,6 +224,7 @@ def _run_training(args: argparse.Namespace) -> None:
         {
             "schema": "nht_runtime_config_v1",
             "camera_model": cfg.camera_model,
+            "pose_opt": False,
             "primitive_type": cfg.primitive_type,
             "antialiased": bool(cfg.antialiased),
             "packed": bool(cfg.packed),
@@ -237,9 +242,7 @@ def _run_training(args: argparse.Namespace) -> None:
             "deferred_mlp_num_layers": int(cfg.deferred_mlp_num_layers),
             "deferred_opt_sh_degree": int(cfg.deferred_opt_sh_degree),
             "deferred_opt_sh_scale": float(cfg.deferred_opt_sh_scale),
-            "deferred_opt_fourier_num_freqs": int(
-                cfg.deferred_opt_fourier_num_freqs
-            ),
+            "deferred_opt_fourier_num_freqs": int(cfg.deferred_opt_fourier_num_freqs),
             "deferred_opt_center_ray_encoding": bool(
                 cfg.deferred_opt_center_ray_encoding
             ),

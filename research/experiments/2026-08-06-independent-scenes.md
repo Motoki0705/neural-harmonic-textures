@@ -32,11 +32,11 @@ validation results were:
 
 | Source | PSNR dB | SSIM | LPIPS-Alex | Independent observed render PSNR dB |
 |---|---:|---:|---:|---:|
-| supplied base (one-step coordinate round trip) | — | — | — | 51.429 trainer/export agreement |
+| supplied base (one-step coordinate round trip) | — | — | — | 51.504 trainer/export agreement |
 | Sunset Park | 25.176 | 0.7670 | 0.3953 | 24.268 |
 | Rural | 15.990 | 0.5253 | 0.5617 | 14.756 |
 | Munich | 16.624 | 0.5166 | 0.6060 | 16.213 |
-| B00 cross-repository selected learned candidate | 15.525 | 0.6077 | 0.6389 | 17.055 |
+| B00 cross-repository selected learned candidate | 15.546 | 0.6069 | 0.6398 | 17.055 |
 
 Every render produced finite float32 RGB, alpha and depth. Munich additionally
 rendered a camera request translated 10 cm laterally, proving the arbitrary-camera
@@ -103,7 +103,10 @@ rendered observed camera, while learned won all aggregate held-out metrics and
 full coverage. The semantic-first ranking therefore remains appropriate; a
 single observed render is retained as a diagnostic rather than promoted above
 coverage and held-out evaluation. Exact evidence is in
-`research/evidence/2026-08-06-b00-candidate-nht.json`.
+`research/evidence/2026-08-06-b00-candidate-nht.json`. The current production
+contract replay, including the non-default near/far planes, CUDA selection,
+accepted alignment and all three downstream datasets, is recorded in
+`research/evidence/2026-08-06-b00-contract-replay.json`.
 
 On Halifax, an explicit learned high-overlap research profile registered all
 98 images with 15,336 points and median track length 22, but took 968.4 seconds.

@@ -3,6 +3,9 @@ from __future__ import annotations
 import json
 import sys
 
+import pytest
+
+from nht_pipeline.config import load_config
 from nht_pipeline.training import resolve_trainer, run_training
 
 
@@ -72,6 +75,12 @@ args.runtime_output.write_text(json.dumps({"schema": "nht_runtime_config_v1"}))
             "test_every": 8,
             "lpips_net": "alex",
             "extra_args": [],
+            "cuda_device": 0,
+            "camera_model": "pinhole",
+            "pose_opt": False,
+            "post_processing": None,
+            "near_plane": 0.125,
+            "far_plane": 456.0,
         },
         tmp_path,
     )
@@ -79,5 +88,30 @@ args.runtime_output.write_text(json.dumps({"schema": "nht_runtime_config_v1"}))
     assert manifest["checkpoint"] == "model/ckpts/ckpt_29999_rank0.pt"
     assert manifest["validation_metrics"][0]["path"].startswith("model/stats/")
     assert manifest["training_metrics"][0]["path"].startswith("model/stats/")
+    command = manifest["command"]
+    assert command[command.index("--near_plane") + 1] == "0.125"
+    assert command[command.index("--far_plane") + 1] == "456.0"
     persisted = json.loads((output_root / "training.json").read_text())
     assert persisted["status"] == "completed"
+
+
+@pytest.mark.parametrize(
+    "field,value,match",
+    [
+        ("pose_opt", True, "pose_opt=false"),
+        ("camera_model", "ortho", "camera_model=pinhole"),
+        ("post_processing", "color-correction", "post_processing=null"),
+    ],
+)
+def test_training_rejects_unsupported_renderer_state_before_writing_output(
+    tmp_path, field, value, match
+) -> None:
+    config = {**load_config(None)["nht_training"], "seed": 42}
+    config[field] = value
+    output = tmp_path / "3dgs"
+
+    with pytest.raises(ValueError, match=match):
+        run_training(tmp_path / "dataset", output, config, tmp_path)
+
+    assert not output.exists()
+    assert not (tmp_path / "export/scene.json").exists()

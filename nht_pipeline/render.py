@@ -11,7 +11,11 @@ from typing import Any
 import numpy as np
 from PIL import Image
 
-from .export import validate_scene_export
+from .export import (
+    ValidatedSceneExport,
+    load_validated_scene_export,
+    validate_pinhole_camera,
+)
 
 
 def _safe_identifier(value: str) -> str:
@@ -21,19 +25,19 @@ def _safe_identifier(value: str) -> str:
 
 
 def _load_requests(
-    export_root: Path,
+    observed_cameras: list[dict[str, Any]],
     camera_ids: list[str] | None,
     request_path: Path | None,
 ) -> list[dict[str, Any]]:
-    scene = json.loads((export_root / "scene.json").read_text())
-    observed_payload = json.loads((export_root / scene["cameras"]).read_text())
     observed = {
         camera["camera_id"]: {**camera, "request_source": "observed"}
-        for camera in observed_payload["cameras"]
+        for camera in observed_cameras
     }
     requests: list[dict[str, Any]] = []
     if camera_ids:
-        missing = [identifier for identifier in camera_ids if identifier not in observed]
+        missing = [
+            identifier for identifier in camera_ids if identifier not in observed
+        ]
         if missing:
             raise ValueError(f"Unknown observed camera IDs: {missing}")
         requests.extend(observed[identifier] for identifier in camera_ids)
@@ -41,7 +45,12 @@ def _load_requests(
         payload = json.loads(request_path.read_text())
         if payload.get("schema") != "nht_render_request_v1":
             raise ValueError("Unsupported arbitrary camera request schema")
-        for camera in payload.get("cameras", []):
+        arbitrary = payload.get("cameras")
+        if not isinstance(arbitrary, list) or not arbitrary:
+            raise ValueError("Arbitrary camera request must contain cameras")
+        for camera in arbitrary:
+            if not isinstance(camera, dict):
+                raise TypeError("Arbitrary camera entries must be mappings")
             requests.append({**camera, "request_source": "arbitrary"})
     if not requests:
         requests = list(observed.values())
@@ -51,31 +60,13 @@ def _load_requests(
         if identifier in identifiers:
             raise ValueError(f"Duplicate render camera ID: {identifier}")
         identifiers.add(identifier)
-        matrix = np.asarray(request["camera_to_scene"], dtype=np.float64)
-        intrinsics = np.asarray(request["intrinsics"]["matrix"], dtype=np.float64)
-        if matrix.shape != (4, 4) or not np.isfinite(matrix).all():
-            raise ValueError(f"Invalid camera_to_scene for {request['camera_id']}")
-        if intrinsics.shape != (3, 3) or not np.isfinite(intrinsics).all():
-            raise ValueError(f"Invalid intrinsics for {request['camera_id']}")
-        if request["intrinsics"].get("model") != "PINHOLE":
-            raise ValueError(f"Unsupported projection model for {identifier}")
-        if request["intrinsics"].get("distortion_model") != "NONE":
-            raise ValueError(f"Arbitrary camera must be undistorted: {identifier}")
-        if intrinsics[0, 0] <= 0 or intrinsics[1, 1] <= 0:
-            raise ValueError(f"Non-positive focal length for {identifier}")
-        rotation = matrix[:3, :3]
-        if not np.allclose(rotation.T @ rotation, np.eye(3), atol=1e-5) or not np.isclose(
-            np.linalg.det(rotation), 1.0, atol=1e-5
-        ):
-            raise ValueError(f"camera_to_scene is not a proper rigid pose: {identifier}")
-        if int(request["width"]) <= 0 or int(request["height"]) <= 0:
-            raise ValueError(f"Invalid resolution for {request['camera_id']}")
+        validate_pinhole_camera(request, identifier)
     return requests
 
 
 def _render_one(
     checkpoint: Path,
-    runtime_config: Path,
+    config: dict[str, Any],
     request: dict[str, Any],
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     try:
@@ -90,9 +81,6 @@ def _render_one(
 
     if not torch.cuda.is_available():
         raise RuntimeError("nht-render requires a CUDA device")
-    config = json.loads(runtime_config.read_text())
-    if config.get("schema") != "nht_runtime_config_v1":
-        raise ValueError("Unsupported NHT runtime configuration")
     device = torch.device("cuda:0")
     payload = torch.load(checkpoint, map_location=device, weights_only=True)
     splats = {name: value.to(device) for name, value in payload["splats"].items()}
@@ -133,14 +121,14 @@ def _render_one(
             height=height,
             tile_size=int(config["tile_size"]),
             packed=bool(config["packed"]),
-            rasterize_mode=(
-                "antialiased" if config["antialiased"] else "classic"
-            ),
+            rasterize_mode=("antialiased" if config["antialiased"] else "classic"),
             render_mode="RGB+ED",
             distributed=False,
             camera_model=str(config["camera_model"]),
             with_ut=bool(config["with_ut"]),
             with_eval3d=bool(config["with_eval3d"]),
+            near_plane=float(config["near_plane"]),
+            far_plane=float(config["far_plane"]),
             nht=True,
             center_ray_mode=bool(config["deferred_opt_center_ray_encoding"]),
             ray_dir_scale=shader.ray_dir_scale,
@@ -155,6 +143,23 @@ def _render_one(
     )
 
 
+def _safe_output_path(output: Path, validated: ValidatedSceneExport) -> Path:
+    if output.is_symlink():
+        raise ValueError("Render output cannot be a symbolic link")
+    resolved = output.expanduser().resolve(strict=False)
+    if resolved.parent == resolved:
+        raise ValueError("Render output cannot be the filesystem root")
+    if resolved.exists() and not resolved.is_dir():
+        raise ValueError("Render output must be a directory path, not an ordinary file")
+    export_root = validated.export_root
+    workspace = export_root.parent
+    if workspace.is_relative_to(resolved):
+        raise ValueError("Render output cannot be the scene workspace or its ancestor")
+    if resolved.is_relative_to(export_root):
+        raise ValueError("Render output cannot be the export root or its descendants")
+    return resolved
+
+
 def render_scene(
     scene_path: Path,
     output: Path,
@@ -162,14 +167,14 @@ def render_scene(
     camera_ids: list[str] | None = None,
     request_path: Path | None = None,
 ) -> dict[str, Any]:
-    scene_path = scene_path.resolve()
-    export_root = scene_path.parent
-    validation = validate_scene_export(export_root)
-    scene = json.loads(scene_path.read_text())
-    renderer = scene["renderer"]
-    requests = _load_requests(export_root, camera_ids, request_path)
+    validated = load_validated_scene_export(scene_path)
+    scene = validated.scene
+    requests = _load_requests(validated.cameras, camera_ids, request_path)
+    output = _safe_output_path(output, validated)
     staging = output.parent / f".{output.name}.staging"
     if staging.exists():
+        if staging.is_symlink() or not staging.is_dir():
+            raise ValueError("Render staging target is not a safe directory")
         shutil.rmtree(staging)
     staging.mkdir(parents=True)
     records: list[dict[str, Any]] = []
@@ -179,8 +184,8 @@ def render_scene(
             camera_root = staging / identifier
             camera_root.mkdir()
             rgb, alpha, depth = _render_one(
-                export_root / renderer["checkpoint"],
-                export_root / renderer["runtime_config"],
+                validated.checkpoint_path,
+                validated.runtime_config,
                 request,
             )
             expected_shapes = (
@@ -200,7 +205,9 @@ def render_scene(
                         f"shape={value.shape}"
                     )
             if rgb.min() < 0 or rgb.max() > 1 or alpha.min() < 0 or alpha.max() > 1:
-                raise RuntimeError(f"Renderer returned RGB/alpha outside [0,1]: {identifier}")
+                raise RuntimeError(
+                    f"Renderer returned RGB/alpha outside [0,1]: {identifier}"
+                )
             if depth.min() < 0:
                 raise RuntimeError(f"Renderer returned negative depth: {identifier}")
             np.save(camera_root / "rgb.npy", rgb.astype(np.float32))
@@ -230,11 +237,13 @@ def render_scene(
             "scene_schema": scene["schema"],
             "scene_id": scene["scene_id"],
             "coordinate_space": "canonical NHT scene space",
-            "export_validation": validation,
+            "export_validation": validated.validation,
             "renders": records,
         }
         (staging / "render.json").write_text(json.dumps(manifest, indent=2) + "\n")
         if output.exists():
+            if output.is_symlink() or not output.is_dir():
+                raise ValueError("Render output changed to an unsafe target")
             shutil.rmtree(output)
         staging.replace(output)
         return manifest

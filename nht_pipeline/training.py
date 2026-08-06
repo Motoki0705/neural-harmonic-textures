@@ -12,6 +12,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from .config import NhtTrainingConfig
+
 
 def _now() -> str:
     return datetime.now(UTC).isoformat()
@@ -65,6 +67,12 @@ def run_training(
     repository_root: Path,
     log_path: Path | None = None,
 ) -> dict[str, Any]:
+    envelope = dict(config)
+    seed = envelope.pop("seed", None)
+    if type(seed) is not int:
+        raise TypeError("NHT training seed must be an integer")
+    typed_config = NhtTrainingConfig.from_mapping(envelope)
+    config = {**typed_config.to_mapping(), "seed": seed}
     python, trainer = resolve_trainer(config, repository_root)
     factor = int(config["data_factor"])
     max_steps = int(config["max_steps"])
@@ -106,6 +114,12 @@ def run_training(
         "--native_images_factor",
         "--result_dir",
         str(result_dir),
+        "--camera_model",
+        str(config["camera_model"]),
+        "--near_plane",
+        str(config["near_plane"]),
+        "--far_plane",
+        str(config["far_plane"]),
     ]
     command.extend(
         [
@@ -128,7 +142,7 @@ def run_training(
             "--strategy.cap-max",
             str(config["cap_max"]),
             "--disable_viewer",
-            *[str(argument) for argument in config.get("extra_args", [])],
+            *[str(argument) for argument in config["extra_args"]],
         ]
     )
     manifest: dict[str, Any] = {
@@ -152,7 +166,7 @@ def run_training(
     manifest_path = output_root / "training.json"
     _write_json(manifest_path, manifest)
     environment = os.environ.copy()
-    environment["CUDA_VISIBLE_DEVICES"] = str(config.get("cuda_device", 0))
+    environment["CUDA_VISIBLE_DEVICES"] = str(config["cuda_device"])
     environment["PYTHONHASHSEED"] = str(config["seed"])
     environment.setdefault("OMP_NUM_THREADS", "4")
     environment.setdefault("OPENBLAS_NUM_THREADS", "4")

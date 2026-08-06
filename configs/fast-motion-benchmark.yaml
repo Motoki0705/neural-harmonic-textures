@@ -64,8 +64,14 @@ nht_training:
   lpips_net: alex
   python: null
   trainer: null
+  adapter: null
   extra_args: []
   cuda_device: 0
+  camera_model: pinhole
+  pose_opt: false
+  post_processing: null
+  near_plane: 0.01
+  far_plane: 10000000000.0
 export:
   schema: nht_standard_scene_v1
 operations:

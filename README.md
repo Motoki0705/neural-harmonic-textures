@@ -47,6 +47,13 @@ NHT 学習には、この repository の `gsplat` checkout または別の NHT r
 trainer の実際の乱数初期化へ注入し、requested/effective seed の不一致や、trainer
 が seed hook を呼ばない実行を拒否します。
 
+Production renderer 契約は `camera_model: pinhole`、`pose_opt: false`、
+`post_processing: null` に限定されます。`near_plane` と `far_plane` は設定から
+trainer、export runtime、`nht-render` の rasterizer まで同じ値を引き渡します。
+未知の設定キー、型違い、未対応の trainer option は学習開始前に fail-closed で
+拒否されます。`extra_args` は運用上必要な `--disable_video` と
+`--num_workers N` だけを受理します。
+
 ## Partial rerun
 
 ```bash
@@ -119,6 +126,11 @@ gateを維持します。両candidate比較用は
 明示的に実行します。これらの自由度はproductionの暗黙fallbackではありません。
 合格した各candidateを同じ短縮NHT recipeへ接続する場合は
 `scripts/run_candidate_nht_benchmark.py`を使用します。
+
+この production policy は誤った再構成を後段へ渡さない high-precision / fail-safe
+設計です。そのため、実選手が大きく動く映像、frame 間 overlap が少ない映像、
+撮影中に optical zoom が変化する映像では、無理に scene を生成せず不合格にする
+場合があり、recall は意図的に低くなります。
 
 ## Standard renderer
 

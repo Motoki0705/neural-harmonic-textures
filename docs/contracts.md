@@ -86,6 +86,9 @@ under each camera's `diagnostics` field. `points_scene.npy` is finite float32
 The validator checks schema fields, conventions, shapes, dtype, finite values,
 color range, unique IDs and image paths, positive focal length, homogeneous
 proper orthonormal rotations, real image resolution, and an NHT checkpoint.
+It accepts the exact `scene.json` path, validates that payload once, and requires
+every camera, image, point-cloud, model, checkpoint, and runtime reference to
+resolve inside that scene's export root (including through symbolic links).
 It intentionally does not check hashes, file-size identity or Git state.
 
 See [`schemas/scene.schema.json`](../schemas/scene.schema.json) and
@@ -101,6 +104,12 @@ through `scene.json`, starts with a clean staging output, and publishes
 `nht_render_result_v1` only after every RGB/alpha/depth array is complete. NHT
 module names, checkpoint keys and internal directories are not part of the caller
 contract.
+
+The production renderer envelope is `camera_model=pinhole`, `pose_opt=false`,
+and `post_processing=null`. Positive finite `near_plane < far_plane` values are
+part of the trainer/export/renderer contract. Output publication rejects the
+filesystem root, the scene workspace, the export tree, symbolic links, and
+ordinary files as destructive replacement targets.
 
 ## Downstream integration status
 

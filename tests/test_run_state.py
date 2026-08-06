@@ -12,6 +12,7 @@ from nht_pipeline.config import (
     effective_start_stage,
     load_config,
     validate_config,
+    write_resolved_config,
 )
 from nht_pipeline.pipeline import STAGE_EXECUTORS, PipelineContext, run_pipeline
 from nht_pipeline.run_state import RunState
@@ -108,9 +109,9 @@ def test_pipeline_records_missing_upstream_output_as_stage_failure(tmp_path) -> 
     payload = json.loads((tmp_path / "run.json").read_text())
     assert payload["status"] == "failed"
     assert payload["stages"]["preprocess"]["status"] == "failed"
-    assert "missing required inputs" in payload["stages"]["preprocess"]["error"][
-        "message"
-    ]
+    assert (
+        "missing required inputs" in payload["stages"]["preprocess"]["error"]["message"]
+    )
 
 
 def test_failed_rerun_physically_unpublishes_stale_descendants(tmp_path) -> None:
@@ -221,7 +222,9 @@ def test_workspace_lock_recovers_dead_process_record(tmp_path) -> None:
     )
     with WorkspaceLock(tmp_path) as lock:
         assert lock.recovered_stale_lock is True
-        assert json.loads((tmp_path / ".pipeline.lock").read_text())["pid"] == os.getpid()
+        assert (
+            json.loads((tmp_path / ".pipeline.lock").read_text())["pid"] == os.getpid()
+        )
     assert not (tmp_path / ".pipeline.lock").exists()
 
 
@@ -233,15 +236,11 @@ def test_config_change_expands_request_to_owning_stage() -> None:
 
     assert affected == "preprocess"
     assert (
-        effective_start_stage(
-            "nht_training", affected, input_video_changed=False
-        )
+        effective_start_stage("nht_training", affected, input_video_changed=False)
         == "preprocess"
     )
     assert (
-        effective_start_stage(
-            "scene_export", None, input_video_changed=True
-        )
+        effective_start_stage("scene_export", None, input_video_changed=True)
         == "frames"
     )
 
@@ -270,3 +269,68 @@ def test_config_rejects_invalid_segment_size() -> None:
 
     with pytest.raises(ValueError, match="camera_segment_size"):
         validate_config(config)
+
+
+def _write_config(tmp_path, payload):
+    path = tmp_path / "config.json"
+    path.write_text(json.dumps(payload))
+    return path
+
+
+@pytest.mark.parametrize(
+    "payload,match",
+    [
+        ({"framse": {}}, "Unknown top-level"),
+        ({"frames": {"frames_per_secod": 2.0}}, "Unknown frames"),
+        ({"operations": {"minimum_free_gb": 0, "mystery": True}}, "Unknown operations"),
+        ({"frames": {"jpeg_quality": True}}, "must be an integer"),
+    ],
+)
+def test_config_rejects_unknown_keys_and_wrong_exact_types(
+    tmp_path, payload, match
+) -> None:
+    with pytest.raises((TypeError, ValueError), match=match):
+        load_config(_write_config(tmp_path, payload))
+
+
+def test_config_rejects_backend_specific_candidate_key(tmp_path) -> None:
+    candidate = load_config(None)["sfm"]["candidates"][0]
+    candidate["retrieval_neighbors"] = 5
+
+    with pytest.raises(ValueError, match="Unknown candidate"):
+        load_config(_write_config(tmp_path, {"sfm": {"candidates": [candidate]}}))
+
+
+@pytest.mark.parametrize(
+    "field,value,match",
+    [
+        ("pose_opt", True, "pose_opt=false"),
+        ("camera_model", "fisheye", "camera_model=pinhole"),
+        ("post_processing", "color-correction", "post_processing=null"),
+        ("extra_args", ["--pose_opt"], "Unsupported.*extra_args"),
+    ],
+)
+def test_unsupported_nht_envelope_fails_before_scene_creation(
+    tmp_path, field, value, match
+) -> None:
+    workspace = tmp_path / "workspace"
+    config_path = _write_config(tmp_path, {"nht_training": {field: value}})
+
+    with pytest.raises(ValueError, match=match):
+        load_config(config_path)
+
+    assert not (workspace / "export/scene.json").exists()
+
+
+def test_resolved_config_contains_only_normalized_consumed_settings(tmp_path) -> None:
+    config = load_config(None)
+    learned = config["sfm"]["candidates"][1]
+    assert learned["site_packages"] is None
+    assert learned["lightglue_root"] is None
+    assert learned["hloc_root"] is None
+    assert config["nht_training"]["near_plane"] == 0.01
+    assert config["nht_training"]["pose_opt"] is False
+
+    path = tmp_path / "resolved-config.yaml"
+    write_resolved_config(path, config)
+    assert json.loads(path.read_text()) == config

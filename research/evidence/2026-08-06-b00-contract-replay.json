@@ -1,0 +1,42 @@
+{
+  "schema": "nht_b00_contract_replay_evidence_v1",
+  "verified_at_utc": "2026-08-06T09:57:29.558215+00:00",
+  "source": "data/tennis_court.mp4",
+  "consumer": "Motoki0705/tennis-lab",
+  "queue_job_id": "1786010177155445439_890369_issue695_b00_contract_roundtrip_local",
+  "pipeline_status": "completed",
+  "nht": {
+    "camera_count": 74,
+    "point_count": 19886,
+    "effective_seed": 42,
+    "max_steps": 500,
+    "checkpoint_step": 499,
+    "validation": {
+      "psnr_db": 15.545892715454102,
+      "ssim": 0.6068914532661438,
+      "lpips_alex": 0.6398079991340637
+    },
+    "runtime_contract": {
+      "camera_model": "pinhole",
+      "pose_opt": false,
+      "post_processing": null,
+      "near_plane": 0.125,
+      "far_plane": 456.0
+    },
+    "cuda": {
+      "configured_device": 0,
+      "selected_device_probe_passed": true
+    }
+  },
+  "alignment": {
+    "status": "accepted",
+    "ground_support_fraction": 0.03499949713366187,
+    "holdout_ground_residual_rms_scene": 0.056626562207958975
+  },
+  "datasets": {
+    "court": 4,
+    "blcs": 4,
+    "plcs": 4
+  },
+  "report_status": "completed"
+}

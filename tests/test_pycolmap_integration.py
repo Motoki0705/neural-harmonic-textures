@@ -47,7 +47,7 @@ def test_real_pycolmap_reconstructs_small_multiview_fixture(tmp_path) -> None:
             "quadratic_overlap": True,
             "max_features": 4096,
             "max_image_size": 640,
-            "num_threads": 2,
+            "num_threads": 1,
         },
         42,
     )

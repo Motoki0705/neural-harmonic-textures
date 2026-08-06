@@ -207,9 +207,7 @@ def _run_sfm(context: PipelineContext) -> dict[str, Any]:
             for record in candidate_records
             if record["status"] == "failed"
         }
-        raise RuntimeError(
-            f"All SfM candidates failed to execute: {failures}"
-        )
+        raise RuntimeError(f"All SfM candidates failed to execute: {failures}")
     return manifest
 
 
@@ -335,7 +333,7 @@ def _run_scene_export(context: PipelineContext) -> dict[str, Any]:
 
 
 def _run_report(context: PipelineContext) -> dict[str, Any]:
-    export_validation = validate_scene_export(context.workspace / "export")
+    export_validation = validate_scene_export(context.workspace / "export/scene.json")
     report = {
         "schema": "nht_reconstruction_report_v1",
         "scene_id": context.state.payload["scene_id"],
@@ -380,7 +378,9 @@ def run_pipeline(
                 stage_name, stage_config(context.config, stage_name)
             )
             attempt = context.state.payload["stages"][stage_name]["attempts"]
-            log_path = context.workspace / "logs" / stage_name / f"attempt-{attempt}.log"
+            log_path = (
+                context.workspace / "logs" / stage_name / f"attempt-{attempt}.log"
+            )
             with capture_stage_log(log_path):
                 preflight_stage(
                     context.workspace,
@@ -391,7 +391,7 @@ def run_pipeline(
                 summary = STAGE_EXECUTORS[stage_name](stage_context)
                 context.state.validate_outputs(stage_name, staging_root)
                 if stage_name == "scene_export":
-                    validate_scene_export(staging_root / "export")
+                    validate_scene_export(staging_root / "export/scene.json")
                 publish_stage(context.workspace, staging_root, stage_name)
             summary["log"] = str(log_path.relative_to(context.workspace))
         except BaseException as error:

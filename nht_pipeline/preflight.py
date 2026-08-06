@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -137,15 +138,62 @@ def preflight_stage(
                 "Missing dependency or invalid NHT runtime: " + probe.stderr.strip()
             )
         device = json.loads(probe.stdout.strip())
+        configured_device = training_config["cuda_device"]
+        available_devices = int(device["cuda_devices"])
+        if not device["cuda_available"] or configured_device >= available_devices:
+            checks["nht_runtime"] = {
+                "python": str(python),
+                "trainer": str(trainer),
+                "adapter": str(adapter),
+                **device,
+                "configured_cuda_device": configured_device,
+                "passed": False,
+                "error": (
+                    f"configured CUDA device {configured_device} is not present; "
+                    f"detected {available_devices} device(s)"
+                ),
+            }
+            _store_checks(workspace, stage_name, checks)
+            raise RuntimeError(checks["nht_runtime"]["error"])
+        selection_environment = os.environ.copy()
+        selection_environment["CUDA_VISIBLE_DEVICES"] = str(configured_device)
+        selected_probe = subprocess.run(
+            [
+                str(python),
+                str(adapter),
+                "probe",
+                "--trainer",
+                str(trainer),
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+            env=selection_environment,
+        )
+        selected_device = (
+            json.loads(selected_probe.stdout.strip())
+            if selected_probe.returncode == 0
+            else {}
+        )
+        selected = bool(
+            selected_probe.returncode == 0
+            and selected_device.get("cuda_available")
+            and selected_device.get("cuda_devices") == 1
+        )
         checks["nht_runtime"] = {
             "python": str(python),
             "trainer": str(trainer),
             "adapter": str(adapter),
             **device,
-            "passed": bool(device["cuda_available"] and device["cuda_devices"]),
+            "configured_cuda_device": configured_device,
+            "selected_device_probe": selected_device,
+            "passed": selected,
         }
         if not checks["nht_runtime"]["passed"]:
             _store_checks(workspace, stage_name, checks)
-            raise RuntimeError("NHT preflight found no available CUDA device")
+            raise RuntimeError(
+                f"NHT preflight could not select CUDA device {configured_device}: "
+                f"{selected_probe.stderr.strip()}"
+            )
     _store_checks(workspace, stage_name, checks)
     return checks

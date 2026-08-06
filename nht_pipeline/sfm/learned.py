@@ -19,7 +19,7 @@ def learned_feature_config(base: dict[str, Any], max_image_size: int) -> dict[st
 
 
 def _camera_mode(config: dict[str, Any], pycolmap: Any) -> Any:
-    sharing = config.get("camera_sharing", "single")
+    sharing = config["camera_sharing"]
     if sharing == "single":
         return pycolmap.CameraMode.SINGLE
     if sharing == "per_image":
@@ -44,7 +44,7 @@ def run_aliked_lightglue(
     seed: int,
 ) -> tuple[Any, dict[str, Any]]:
     for key in ("site_packages", "lightglue_root", "hloc_root"):
-        _add_import_path(config.get(key))
+        _add_import_path(config[key])
     try:
         import pycolmap
         from hloc import (
@@ -65,7 +65,7 @@ def run_aliked_lightglue(
     features = extract_features.main(
         learned_feature_config(
             extract_features.confs["aliked-n16"],
-            int(config.get("max_image_size", 1024)),
+            int(config["max_image_size"]),
         ),
         image_dir,
         candidate_dir,
@@ -77,13 +77,13 @@ def run_aliked_lightglue(
     pairs_from_retrieval.main(
         retrieval,
         retrieval_pairs,
-        int(config.get("retrieval_neighbors", 10)),
+        int(config["retrieval_neighbors"]),
     )
     pairs = candidate_dir / "pairs.txt"
     pair_summary = write_pair_graph(
         image_dir,
         pairs,
-        int(config.get("sequential_overlap", 10)),
+        int(config["sequential_overlap"]),
         retrieval_pairs,
         candidate_dir / "pair-graph.json",
     )
@@ -102,7 +102,7 @@ def run_aliked_lightglue(
         "ba_refine_principal_point": False,
         "ba_refine_extra_params": True,
         "random_seed": seed,
-        "num_threads": int(config.get("num_threads", 4)),
+        "num_threads": int(config["num_threads"]),
     }
     result = reconstruction.main(
         model_dir,
@@ -112,7 +112,7 @@ def run_aliked_lightglue(
         matches_path,
         camera_mode=_camera_mode(config, pycolmap),
         image_options={
-            "camera_model": config.get("camera_model", "OPENCV"),
+            "camera_model": config["camera_model"],
             "default_focal_length_factor": 1.0,
         },
         mapper_options=mapper_options,
@@ -125,7 +125,7 @@ def run_aliked_lightglue(
         "pair_graph": pair_summary,
         "selected_registered_images": result.num_reg_images(),
         "selected_sparse_points": result.num_points3D(),
-        "camera_sharing": config.get("camera_sharing", "single"),
+        "camera_sharing": config["camera_sharing"],
         "reconstructed_cameras": result.num_cameras(),
         "effective_seed": seed,
     }
