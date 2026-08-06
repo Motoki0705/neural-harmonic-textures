@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Measure dynamic-box contamination and static support in SfM candidates."""
 
 from __future__ import annotations

@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Run the same NHT recipe for one already reconstructed SfM candidate."""
 
 from __future__ import annotations
