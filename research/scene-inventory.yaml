@@ -1,0 +1,304 @@
+schema: nht_sfm_scene_inventory_v1
+scenes:
+  - id: tennis-court-base
+    source: data/tennis_court.mp4
+    provenance: supplied capture
+    status: measured_end_to_end
+    challenges:
+      - long_video
+      - repetitive_court_texture
+      - multiple_courts
+      - motion_blur
+      - illumination_and_autofocus_change
+      - possible_rolling_shutter
+    expected_outcome_before_run: accept
+    venue_group: supplied-outdoor-multi-court
+    device_group: supplied-handheld-camera
+    result:
+      cross_repository_scene_id: B00
+      cross_repository_selected: aliked-lightglue
+      cross_repository_registered_images: 74
+      cross_repository_supported_registered_images: 74
+      cross_repository_sparse_points: 19886
+      cross_repository_nht_steps: 500
+      cross_repository_nht_validation_psnr: 15.500
+      cross_repository_alignment_and_datasets_completed: true
+      candidate_comparison_attempt_learned_sparse_points: 19961
+      candidate_comparison_attempt_learned_validation_psnr: 15.525
+  - id: pexels-sunset-park-5015666
+    source: data/acceptance/sources/pexels-5015666.mp4
+    source_url: https://www.pexels.com/video/drone-footage-of-tennis-courts-5015666/
+    provenance: independent human-shot Pexels capture by Ibrahim Bennett
+    license: Pexels license, free to use
+    status: measured_end_to_end
+    expected_outcome_before_run: accept
+    venue_group: sunset-park-multi-court
+    device_group: drone-ibrahim-bennett
+    challenges: [low_light, lens_flare, exposure_change, distant_court]
+    result:
+      selected: sift-incremental
+      registered_images: 51
+      supported_registered_images: 51
+      sparse_points: 12271
+      median_track_length: 7.0
+      median_triangulation_angle_deg: 6.619
+      nht_steps: 500
+      nht_validation_psnr: 25.176
+      nht_validation_ssim: 0.7670
+      nht_validation_lpips_alex: 0.3953
+      independent_observed_render_psnr: 24.268
+      observed_rgb_alpha_depth_finite: true
+  - id: pexels-blue-courts-9105177
+    source: data/acceptance/sources/pexels-9105177.mp4
+    source_url: https://www.pexels.com/video/drone-footage-of-an-empty-tennis-court-9105177/
+    provenance: independent human-shot Pexels capture by Be The Observer
+    license: Pexels license, free to use
+    status: measured_sfm_rejected_all
+    expected_outcome_before_run: accept
+    venue_group: blue-green-public-courts
+    device_group: drone-be-the-observer
+    challenges: [repetitive_court_texture, low_altitude_translation]
+    result:
+      interpretation: neither candidate reconstructed enough of the clip
+      sift_registered_images: 2
+      aliked_registered_images: 7
+      nht_or_export_published: false
+  - id: pexels-green-match-3858867
+    source: data/acceptance/sources/pexels-3858867.mp4
+    source_url: https://www.pexels.com/video/drone-shot-of-a-tennis-match-3858867/
+    provenance: independent human-shot Pexels capture by K
+    license: Pexels license, free to use
+    status: measured_sfm_execution_failure
+    expected_outcome_before_run: accept
+    venue_group: green-residential-court
+    device_group: drone-k
+    challenges: [real_players, moving_shadows, top_down_view]
+    result:
+      interpretation: both configured candidates produced no usable model
+      accepted_preprocessed_frames: 53
+      nht_or_export_published: false
+  - id: pexels-red-multisport-14992855
+    source: data/acceptance/sources/pexels-14992855.mp4
+    source_url: https://www.pexels.com/video/men-playing-tennis-in-drone-footage-14992855/
+    provenance: independent human-shot Pexels capture by Ignacio Pereira
+    license: Pexels license, free to use
+    status: measured_sfm_execution_failure
+    expected_outcome_before_run: accept
+    venue_group: red-multisport-court
+    device_group: drone-ignacio-pereira
+    challenges: [real_players, mixed_court_markings, top_down_view]
+    result:
+      interpretation: both configured candidates produced no usable model
+      accepted_preprocessed_frames: 26
+      nht_or_export_published: false
+  - id: pexels-knoxville-17290119
+    source: data/acceptance/sources/pexels-17290119.mp4
+    source_url: https://www.pexels.com/video/drone-tennis-park-17290119/
+    provenance: independent human-shot Pexels capture by Jaxon Matthew Willis
+    license: Pexels license, free to use
+    status: measured_sfm_execution_failure
+    expected_outcome_before_run: accept
+    venue_group: knoxville-park-court
+    device_group: dji-mini-drone
+    challenges: [real_players, aerial_motion, repetitive_court_texture]
+    result:
+      interpretation: classic and learned mappers both produced no reconstruction
+      accepted_preprocessed_frames: 83
+      nht_or_export_published: false
+  - id: pexels-rural-20698836
+    source: data/acceptance/sources/pexels-20698836.mp4
+    source_url: https://www.pexels.com/video/an-aerial-view-of-a-tennis-court-and-green-grass-20698836/
+    provenance: independent human-shot Pexels capture by Eric Skaggs
+    license: Pexels license, free to use
+    status: measured_end_to_end
+    expected_outcome_before_run: accept
+    venue_group: ohio-rural-courts
+    device_group: drone-eric-skaggs
+    challenges: [distant_court, aerial_motion, vegetation]
+    result:
+      selected: aliked-lightglue
+      registered_images: 86
+      supported_registered_images: 86
+      sparse_points: 11200
+      median_track_length: 22.0
+      median_triangulation_angle_deg: 12.386
+      nht_steps: 500
+      nht_validation_psnr: 15.990
+      nht_validation_ssim: 0.5253
+      nht_validation_lpips_alex: 0.5617
+      independent_observed_render_psnr: 14.756
+      observed_rgb_alpha_depth_finite: true
+  - id: pexels-urban-match-14883508
+    source: data/acceptance/sources/pexels-14883508.mp4
+    source_url: https://www.pexels.com/video/an-aerial-view-of-a-tennis-court-and-cars-14883508/
+    provenance: independent human-shot Pexels capture by Kenan Turguç
+    license: Pexels license, free to use
+    status: measured_sfm_rejected_all
+    expected_outcome_before_run: accept
+    venue_group: urban-blue-court-and-car-park
+    device_group: dji-mavic-pro-2
+    challenges: [real_players, moving_shadows, aerial_translation, dynamic_cars]
+    result:
+      interpretation: learned matching recovered a local model but not enough coverage
+      sift_registered_images: 2
+      aliked_registered_images: 11
+      nht_or_export_published: false
+  - id: pexels-cansu-overhead-35634647
+    source: data/acceptance/sources/pexels-35634647.mp4
+    source_url: https://www.pexels.com/video/aerial-view-of-outdoor-tennis-courts-35634647/
+    provenance: independent human-shot Pexels capture by Cansu Hangul
+    license: Pexels license, free to use
+    status: measured_sfm_rejected_all
+    expected_outcome_before_run: accept
+    venue_group: cansu-green-red-court
+    device_group: unknown-drone-portrait
+    challenges: [real_players, aerial_translation, descent, portrait_video]
+    result:
+      interpretation: both candidates formed only local three-view models
+      sift_registered_images: 2
+      aliked_registered_images: 3
+      nht_or_export_published: false
+  - id: pexels-cansu-angled-35634600
+    source: data/acceptance/sources/pexels-35634600.mp4
+    source_url: https://www.pexels.com/video/aerial-view-of-tennis-players-on-court-35634600/
+    provenance: independent human-shot Pexels capture by Cansu Hangul
+    license: Pexels license, free to use
+    status: measured_sfm_rejected_all
+    expected_outcome_before_run: accept
+    venue_group: cansu-green-red-court
+    device_group: unknown-drone-portrait
+    challenges: [real_players, aerial_translation, approach, portrait_video]
+    result:
+      interpretation: both candidates formed only local four-view-or-smaller models
+      sift_registered_images: 4
+      aliked_registered_images: 3
+      nht_or_export_published: false
+  - id: pexels-halifax-city-2818524
+    source: data/acceptance/sources/pexels-2818524.mp4
+    source_url: https://www.pexels.com/video/drone-footage-of-tennis-courts-in-a-city-block-2818524/
+    provenance: independent human-shot Pexels capture by Kelly
+    license: Pexels license, free to use
+    status: measured_sfm_accepted_primary
+    expected_outcome_before_run: accept
+    venue_group: halifax-city-block-courts
+    device_group: drone-kelly
+    challenges: [multiple_courts, city_buildings, aerial_translation, top_down_view]
+    result:
+      selected: sift-incremental
+      sift_registered_images: 98
+      sift_sparse_points: 14264
+      sift_median_track_length: 17.0
+      sift_median_triangulation_angle_deg: 7.147
+      aliked_result: no reconstruction under the production overlap-10 profile
+      aliked_high_overlap_research_registered_images: 98
+      aliked_high_overlap_research_sparse_points: 15336
+      aliked_high_overlap_research_median_track_length: 22.0
+      aliked_high_overlap_research_runtime_seconds: 968.386
+  - id: pexels-austin-urban-32925183
+    source: data/acceptance/sources/pexels-32925183.mp4
+    source_url: https://www.pexels.com/video/aerial-view-of-tennis-courts-in-urban-setting-32925183/
+    provenance: independent human-shot Pexels capture by K
+    license: Pexels license, free to use
+    status: measured_sfm_execution_failure
+    expected_outcome_before_run: accept
+    venue_group: austin-urban-multi-court
+    device_group: drone-k-austin
+    challenges: [multiple_courts, real_players, aerial_translation, top_down_view]
+    result:
+      interpretation: neither classic nor learned mapper produced a reconstruction
+      nht_or_export_published: false
+  - id: pexels-munich-red-courts-35014859
+    source: data/acceptance/sources/pexels-35014859.mp4
+    source_url: https://www.pexels.com/video/aerial-view-of-tennis-courts-and-urban-landscape-35014859/
+    provenance: independent human-shot Pexels capture by Fich View Studio
+    license: Pexels license, free to use
+    status: measured_end_to_end
+    expected_outcome_before_run: accept
+    venue_group: munich-red-court-complex
+    device_group: drone-fich-view-studio
+    challenges: [multiple_courts, winter_light, aerial_translation, mixed_city_farmland]
+    result:
+      selected: aliked-lightglue
+      registered_images: 51
+      supported_registered_images: 51
+      sparse_points: 8027
+      median_track_length: 14.0
+      median_triangulation_angle_deg: 6.642
+      sift_registered_images: 3
+      nht_steps: 500
+      nht_validation_psnr: 16.624
+      nht_validation_ssim: 0.5166
+      nht_validation_lpips_alex: 0.6060
+      independent_observed_render_psnr: 16.213
+      observed_and_arbitrary_rgb_alpha_depth_finite: true
+  - id: youtube-nitto-zoom-000003
+    source: data/acceptance/sources/youtube-nitto-zoom-000003.mp4
+    source_url: https://www.youtube.com/watch?v=9aZK0daNm9E
+    provenance: independent 2019 arena capture uploaded by Ibrahim Afsar
+    status: measured_sfm_rejected_all
+    expected_outcome_before_run: reject_fail_safe
+    venue_group: nitto-atp-finals-indoor-arena
+    device_group: arena-handheld-zoom-camera
+    challenges: [real_players, spectators, continuous_zoom, autofocus, low_parallax]
+    result:
+      interpretation: low parallax and optical zoom prevented global registration
+      single_camera_registered_images: 5
+      segment_camera_registered_images: 3
+      per_image_camera_registered_images: 6
+      per_image_focal_length_coefficient_of_variation: 0.1419
+      per_image_p95_adjacent_relative_focal_change: 0.3716
+      nht_or_export_published: false
+  - id: meiji-fixed-player-cam0
+    source: data/acceptance/sources/meiji-fixed-player-cam0.mp4
+    provenance: independent Meiji three-camera capture, cam0
+    status: planned_expected_failure
+    expected_outcome_before_run: reject_fail_safe
+    venue_group: meiji-outdoor-court
+    device_group: meiji-fixed-wide-camera
+    challenges: [real_players, fixed_camera, zero_parallax, wide_angle_distortion]
+  - id: tennis-court-blur-lowlight
+    source: derived from supplied capture by scripts/build_sfm_benchmarks.sh
+    provenance: deterministic stress transform, not an independent capture
+    status: measured_sfm_accepted_primary
+    challenges: [motion_blur, illumination_change]
+    result:
+      selected: sift-incremental
+      registered_images: 60
+      supported_registered_images: 60
+      sparse_points: 20935
+  - id: tennis-court-zoom
+    source: derived from supplied capture by scripts/build_sfm_benchmarks.sh
+    provenance: deterministic digital-zoom stress transform, not optical zoom
+    status: measured_sfm_accepted_primary
+    challenges: [apparent_focal_change, repetitive_court_texture]
+    result:
+      selected: sift-incremental
+      registered_images: 60
+      supported_registered_images: 60
+      sparse_points: 22708
+  - id: tennis-court-dynamic-occlusion
+    source: derived from supplied capture by scripts/build_sfm_benchmarks.sh
+    provenance: deterministic moving-occluder stress transform, not real players
+    status: measured_sfm_rejected_all
+    challenges: [dynamic_objects, repetitive_court_texture]
+    result:
+      interpretation: paired control also failed; occlusion effect is inconclusive
+      sift_registered_images: 2
+      aliked_registered_images: 3
+  - id: tennis-court-dynamic-control
+    source: unmodified 360-420 second segment from supplied capture
+    provenance: deterministic time crop, control for dynamic-occlusion transform
+    status: measured_sfm_rejected_all
+    challenges: [repetitive_court_texture, low_parallax_pan, source_motion]
+    result:
+      interpretation: low-parallax rotation over planar repetitive courts
+      sift_registered_images: 3
+      aliked_registered_images: 3
+acceptance_design_frozen_before_runs:
+  minimum_independent_sources: 6
+  minimum_venue_groups: 2
+  minimum_device_groups: 2
+  minimum_end_to_end_successes: 4
+  success_profile: configs/production.yaml; configs/fast-motion-retry.yaml only after overlap-limited rejection
+  comparison_profile: configs/fast-motion-benchmark.yaml with both candidates always enabled
+  failure_rule: no NHT or export may be published after all-candidate rejection

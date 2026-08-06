@@ -1,8 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
-# Editable install for superproject-only helpers (AOV dataset, examples).
-# Run from repo root: pip install -e .
+# Video-to-NHT reconstruction pipeline plus optional AOV helpers.
 
 [build-system]
 requires = ["setuptools>64,<80"]
@@ -11,29 +10,50 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "nht"
 version = "0.0.0"
-description = "NHT release (dataset wrapper and training/view scripts)"
+description = "Mutable video-to-SfM-to-NHT reconstruction pipeline"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 dependencies = [
-    "setuptools>64,<80",
-    "wheel",
-    "ninja",
-    "numpy",
-    "rich",
-    "torch==2.9.1",
-    "torchvision==0.24.1",
+    "jsonschema>=4.25",
+    "numpy>=1.26,<3",
+    "Pillow>=10",
+    "pycolmap>=4,<5",
+    "PyYAML>=6",
 ]
 
-[tool.uv.sources]
-torch = { index = "pytorch" }
-torchvision = { index = "pytorch" }
+[project.optional-dependencies]
+test = ["mypy>=1.17", "pytest>=8", "ruff>=0.12"]
+aov = ["torch>=2.4", "torchvision>=0.19"]
+sfm-learned = [
+    "hloc @ git+https://github.com/cvg/Hierarchical-Localization.git",
+]
+
+[project.scripts]
+nht-reconstruct = "nht_pipeline.__main__:main"
+nht-render = "nht_pipeline.render:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["aov*"]
+include = ["aov*", "nht_pipeline*"]
 
-[[tool.uv.index]]
-# The PyTorch index is controlled externally by setting UV_INDEX="pytorch=<index_url>"
-name = "pytorch"
-url = "https://download.pytorch.org/whl"
-default = true
+[tool.setuptools.package-data]
+nht_pipeline = ["schemas/*.json"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 88
+
+[tool.ruff.lint.per-file-ignores]
+"tests/test_nht_aov.py" = ["BLE001", "F401", "I001", "RUF012", "RUF059", "UP035"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = ["gpu: requires an external NHT CUDA runtime and real SfM workspace"]
+
+[tool.mypy]
+python_version = "3.11"
+packages = ["nht_pipeline"]
+ignore_missing_imports = true
+no_site_packages = true
+check_untyped_defs = true
+warn_unused_ignores = true

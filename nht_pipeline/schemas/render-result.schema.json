@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/neural-harmonic-textures/render-result.schema.json",
+  "title": "NHT rendering result",
+  "type": "object",
+  "required": ["schema", "scene_schema", "scene_id", "coordinate_space", "export_validation", "renders"],
+  "properties": {
+    "schema": {"const": "nht_render_result_v1"},
+    "scene_schema": {"const": "nht_standard_scene_v1"},
+    "scene_id": {"type": "string", "minLength": 1},
+    "coordinate_space": {"const": "canonical NHT scene space"},
+    "export_validation": {"type": "object"},
+    "renders": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["camera_id", "request_source", "width", "height", "rgb", "rgb_preview", "alpha", "alpha_preview", "depth"],
+        "properties": {
+          "camera_id": {"type": "string", "minLength": 1},
+          "request_source": {"enum": ["observed", "arbitrary"]},
+          "width": {"type": "integer", "minimum": 1},
+          "height": {"type": "integer", "minimum": 1},
+          "rgb": {"type": "string", "pattern": "^[^/]+/rgb\\.npy$"},
+          "rgb_preview": {"type": "string", "pattern": "^[^/]+/rgb\\.png$"},
+          "alpha": {"type": "string", "pattern": "^[^/]+/alpha\\.npy$"},
+          "alpha_preview": {"type": "string", "pattern": "^[^/]+/alpha\\.png$"},
+          "depth": {"type": "string", "pattern": "^[^/]+/depth\\.npy$"}
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,130 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/neural-harmonic-textures/run.schema.json",
+  "title": "Neural Harmonic Textures pipeline run",
+  "type": "object",
+  "required": [
+    "schema",
+    "scene_id",
+    "status",
+    "input_video",
+    "resolved_config",
+    "requested_from_stage",
+    "effective_from_stage",
+    "requested_through_stage",
+    "created_at_utc",
+    "updated_at_utc",
+    "stages"
+  ],
+  "properties": {
+    "schema": {"const": "nht_pipeline_run_v1"},
+    "scene_id": {"type": "string", "minLength": 1, "pattern": "^[^/\\\\]+$"},
+    "status": {"$ref": "#/$defs/status"},
+    "input_video": {"type": ["string", "null"]},
+    "resolved_config": {"const": "resolved-config.yaml"},
+    "requested_from_stage": {
+      "anyOf": [{"$ref": "#/$defs/stageName"}, {"type": "null"}]
+    },
+    "effective_from_stage": {
+      "anyOf": [{"$ref": "#/$defs/stageName"}, {"type": "null"}]
+    },
+    "requested_through_stage": {
+      "anyOf": [{"$ref": "#/$defs/stageName"}, {"type": "null"}]
+    },
+    "created_at_utc": {"type": "string", "format": "date-time"},
+    "updated_at_utc": {"type": "string", "format": "date-time"},
+    "stages": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "frames",
+        "preprocess",
+        "sfm",
+        "sfm_selection",
+        "nht_training",
+        "scene_export",
+        "reconstruction_report"
+      ],
+      "properties": {
+        "frames": {"$ref": "#/$defs/stageRecord"},
+        "preprocess": {"$ref": "#/$defs/stageRecord"},
+        "sfm": {"$ref": "#/$defs/stageRecord"},
+        "sfm_selection": {"$ref": "#/$defs/stageRecord"},
+        "nht_training": {"$ref": "#/$defs/stageRecord"},
+        "scene_export": {"$ref": "#/$defs/stageRecord"},
+        "reconstruction_report": {"$ref": "#/$defs/stageRecord"}
+      }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "status": {
+      "enum": ["pending", "running", "completed", "failed", "invalidated", "skipped"]
+    },
+    "stageName": {
+      "enum": [
+        "frames",
+        "preprocess",
+        "sfm",
+        "sfm_selection",
+        "nht_training",
+        "scene_export",
+        "reconstruction_report"
+      ]
+    },
+    "nullableDateTime": {
+      "anyOf": [{"type": "string", "format": "date-time"}, {"type": "null"}]
+    },
+    "stageRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "attempts",
+        "outputs",
+        "summary",
+        "config",
+        "error",
+        "started_at_utc",
+        "finished_at_utc"
+      ],
+      "properties": {
+        "status": {"$ref": "#/$defs/status"},
+        "attempts": {"type": "integer", "minimum": 0},
+        "outputs": {"type": "array", "items": {"type": "string"}},
+        "summary": {"type": ["object", "null"]},
+        "config": {"type": ["object", "null"]},
+        "error": {
+          "anyOf": [
+            {
+              "type": "object",
+              "required": ["type", "message", "category"],
+              "properties": {
+                "type": {"type": ["string", "null"]},
+                "message": {"type": "string"},
+                "category": {
+                  "enum": [
+                    "oom",
+                    "missing_dependency",
+                    "invalid_camera_model",
+                    "all_candidates_rejected",
+                    "checkpoint_missing",
+                    "non_finite_metric",
+                    "process_signal",
+                    "process_nonzero_exit",
+                    "process_interrupted",
+                    "unclassified"
+                  ]
+                }
+              },
+              "additionalProperties": false
+            },
+            {"type": "null"}
+          ]
+        },
+        "started_at_utc": {"$ref": "#/$defs/nullableDateTime"},
+        "finished_at_utc": {"$ref": "#/$defs/nullableDateTime"}
+      }
+    }
+  }
+}

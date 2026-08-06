@@ -1,0 +1,52 @@
+{
+  "schema": "nht_candidate_downstream_comparison_v1",
+  "scene_id": "B00",
+  "source": "data/tennis_court.mp4",
+  "common_recipe": {
+    "seed": 42,
+    "max_steps": 500,
+    "data_factor": 2,
+    "cap_max": 300000,
+    "lpips_network": "alex"
+  },
+  "candidates": {
+    "sift-incremental": {
+      "sfm": {
+        "registered_images": 73,
+        "supported_registered_images": 72,
+        "sparse_points": 12018,
+        "p95_reprojection_error_px": 2.1390288152421033,
+        "median_track_length": 2.0,
+        "points_per_supported_camera": 166.91666666666666
+      },
+      "nht": {
+        "psnr": 15.325308799743652,
+        "ssim": 0.5960801839828491,
+        "lpips_alex": 0.7350901961326599,
+        "independent_observed_camera_id": "frame_000001",
+        "independent_observed_render_psnr": 17.879167195252993,
+        "rgb_alpha_depth_finite": true
+      }
+    },
+    "aliked-lightglue": {
+      "sfm": {
+        "registered_images": 74,
+        "supported_registered_images": 74,
+        "sparse_points": 19961,
+        "p95_reprojection_error_px": 2.2377035924553823,
+        "median_track_length": 3.0,
+        "points_per_supported_camera": 269.7432432432432
+      },
+      "nht": {
+        "psnr": 15.525120735168457,
+        "ssim": 0.6076740622520447,
+        "lpips_alex": 0.6388545036315918,
+        "independent_observed_camera_id": "frame_000001",
+        "independent_observed_render_psnr": 17.05547528703464,
+        "rgb_alpha_depth_finite": true
+      }
+    }
+  },
+  "selection": "aliked-lightglue",
+  "interpretation": "The selected candidate had complete supported coverage, 1.66x more sparse points, and better aggregate held-out NHT metrics. SIFT was 0.824 dB better on the single independently rendered observed camera, so one render is diagnostic rather than a replacement for the semantic and held-out ranking."
+}

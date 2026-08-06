@@ -1,0 +1,30 @@
+{
+  "schema": "nht_gpu_round_trip_evidence_v1",
+  "verified_at_utc": "2026-08-06T10:00:38.142819+00:00",
+  "source_workspace": "/home/kamimura/projects/neural-harmonic-textures/artifacts/integration/tennis-court/reconstruction",
+  "runtime": {
+    "schema": "nht_runtime_probe_v1",
+    "torch": "2.9.1+cu130",
+    "cuda_available": true,
+    "cuda_devices": 1,
+    "cuda_names": [
+      "NVIDIA GeForce RTX 5060 Ti"
+    ],
+    "trainer": "/home/kamimura/projects/gaussian-splating/third_party/neural-harmonic-textures/gsplat/examples/simple_trainer_nht.py",
+    "trainer_importable": true
+  },
+  "effective_seed": 137,
+  "camera_id": "frame_000000",
+  "camera_count": 491,
+  "point_count": 217115,
+  "trainer_render_mae": 0.0021157737355679274,
+  "trainer_render_psnr_db": 51.50416564941406,
+  "acceptance_thresholds": {
+    "maximum_trainer_render_mae": 0.01,
+    "minimum_trainer_render_psnr_db": 40.0
+  },
+  "observed_rgb_alpha_depth": true,
+  "arbitrary_rgb_alpha_depth": true,
+  "near_plane": 0.125,
+  "far_plane": 456.0
+}

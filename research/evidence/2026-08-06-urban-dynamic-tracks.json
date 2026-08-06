@@ -1,0 +1,90 @@
+{
+  "schema": "nht_dynamic_track_analysis_v1",
+  "scene_id": "pexels-urban-match-14883508",
+  "detector": {
+    "checkpoint": "/home/kamimura/projects/tennis-lab/ckpt/yolo/yolo26x.pt",
+    "confidence": 0.25,
+    "dynamic_coco_classes": [
+      0,
+      1,
+      2,
+      3,
+      5,
+      7
+    ],
+    "class_detection_counts": {
+      "0": 14,
+      "2": 4
+    },
+    "images_with_detections": 8,
+    "elapsed_seconds": 4.467708158073947
+  },
+  "candidates": {
+    "sift-incremental": {
+      "registered_images": 2,
+      "registered_images_with_dynamic_detections": 2,
+      "static_supported_images": 2,
+      "static_supported_registration_ratio": 1.0,
+      "minimum_static_points_per_image": 50,
+      "registered_point_observations": 460,
+      "dynamic_box_observations": 0,
+      "dynamic_observation_fraction": 0.0,
+      "points_with_any_dynamic_box_observation": 0,
+      "dynamic_track_contamination_fraction": 0.0,
+      "tracks_with_at_least_two_static_observations": 230,
+      "sparse_points": 230,
+      "pose_continuity": {
+        "median_step": 0.3124999999999999,
+        "p95_step": 0.3124999999999999,
+        "maximum_step": 0.3124999999999999,
+        "maximum_step_to_median": 1.0,
+        "step_outlier_count": 0,
+        "median_rotation_step_deg": 0.1967866229616955,
+        "p95_rotation_step_deg": 0.1967866229616955,
+        "maximum_rotation_step_deg": 0.1967866229616955,
+        "planarity_ratio": 6.86453669673041e-17,
+        "extent": [
+          1.5082104297573844,
+          0.0037222689937106354,
+          9.885610119981695
+        ],
+        "p05_step": 0.3124999999999999,
+        "near_duplicate_step_count": 0,
+        "near_duplicate_fraction": 0.0
+      }
+    },
+    "aliked-lightglue": {
+      "registered_images": 11,
+      "registered_images_with_dynamic_detections": 7,
+      "static_supported_images": 11,
+      "static_supported_registration_ratio": 1.0,
+      "minimum_static_points_per_image": 50,
+      "registered_point_observations": 17591,
+      "dynamic_box_observations": 31,
+      "dynamic_observation_fraction": 0.001762264794497186,
+      "points_with_any_dynamic_box_observation": 31,
+      "dynamic_track_contamination_fraction": 0.009838146620120596,
+      "tracks_with_at_least_two_static_observations": 3148,
+      "sparse_points": 3151,
+      "pose_continuity": {
+        "median_step": 1.567406765958545,
+        "p95_step": 2.1760178376657384,
+        "maximum_step": 2.1975310332872997,
+        "maximum_step_to_median": 1.402017064755621,
+        "step_outlier_count": 0,
+        "median_rotation_step_deg": 0.034996514461276204,
+        "p95_rotation_step_deg": 0.2867913901187741,
+        "maximum_rotation_step_deg": 0.3071299242140284,
+        "planarity_ratio": 0.015224650888487436,
+        "extent": [
+          0.5296214131028254,
+          1.84970540198943,
+          18.948299528525776
+        ],
+        "p05_step": 0.07627962952861607,
+        "near_duplicate_step_count": 1,
+        "near_duplicate_fraction": 0.1
+      }
+    }
+  }
+}

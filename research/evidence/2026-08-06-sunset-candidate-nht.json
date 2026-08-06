@@ -1,0 +1,52 @@
+{
+  "schema": "nht_candidate_downstream_comparison_v1",
+  "scene_id": "pexels-sunset-park-5015666",
+  "common_recipe": {
+    "seed": 42,
+    "max_steps": 500,
+    "data_factor": 2,
+    "cap_max": 300000,
+    "lpips_network": "alex"
+  },
+  "candidates": {
+    "sift-incremental": {
+      "sfm": {
+        "registered_images": 51,
+        "supported_registered_images": 51,
+        "sparse_points": 12271,
+        "p95_reprojection_error_px": 2.147884152029668,
+        "median_track_length": 7.0,
+        "points_per_supported_camera": 240.6078431372549,
+        "runtime_seconds": 301.1041123231407,
+        "stored_bytes": 67505570
+      },
+      "nht": {
+        "psnr": 25.175703048706055,
+        "ssim": 0.7670386433601379,
+        "lpips_alex": 0.39534318447113037,
+        "independent_observed_render_psnr": 24.26829821346289,
+        "rgb_alpha_depth_finite": true
+      }
+    },
+    "aliked-lightglue": {
+      "sfm": {
+        "registered_images": 51,
+        "supported_registered_images": 51,
+        "sparse_points": 3223,
+        "p95_reprojection_error_px": 2.0007469401398255,
+        "median_track_length": 15.0,
+        "points_per_supported_camera": 63.19607843137255,
+        "runtime_seconds": 257.538486815989,
+        "stored_bytes": 43938750
+      },
+      "nht": {
+        "psnr": 23.17388153076172,
+        "ssim": 0.7504478693008423,
+        "lpips_alex": 0.42125675082206726,
+        "independent_observed_render_psnr": 22.433804931051103,
+        "rgb_alpha_depth_finite": true
+      }
+    }
+  },
+  "decision": "keep classic primary; point-density rank agreed with all measured NHT metrics"
+}
