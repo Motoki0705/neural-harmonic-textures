@@ -17,6 +17,7 @@ from .export import (
     load_validated_scene_export,
     validate_pinhole_camera,
 )
+from .schema import validate_schema_payload
 
 
 def _safe_identifier(value: str) -> str:
@@ -44,14 +45,11 @@ def _load_requests(
         requests.extend(observed[identifier] for identifier in camera_ids)
     if request_path is not None:
         payload = json.loads(request_path.read_text())
-        if payload.get("schema") != "nht_render_request_v1":
-            raise ValueError("Unsupported arbitrary camera request schema")
-        arbitrary = payload.get("cameras")
-        if not isinstance(arbitrary, list) or not arbitrary:
-            raise ValueError("Arbitrary camera request must contain cameras")
+        validate_schema_payload(
+            "render-request", payload, context="Arbitrary camera request"
+        )
+        arbitrary = payload["cameras"]
         for camera in arbitrary:
-            if not isinstance(camera, dict):
-                raise TypeError("Arbitrary camera entries must be mappings")
             requests.append({**camera, "request_source": "arbitrary"})
     if not requests:
         requests = list(observed.values())
@@ -160,10 +158,9 @@ def _validate_replaceable_output(output: Path, scene_id: str) -> None:
         ownership = json.loads(marker.read_text())
     except (OSError, UnicodeError, json.JSONDecodeError) as error:
         raise ValueError("Render output ownership marker is invalid") from error
-    if not isinstance(ownership, dict) or ownership.get("schema") != (
-        "nht_render_result_v1"
-    ):
-        raise ValueError("Render output ownership marker has an invalid schema")
+    validate_schema_payload(
+        "render-result", ownership, context="Render output ownership marker"
+    )
     if ownership.get("scene_id") != scene_id:
         raise ValueError("Render output ownership marker belongs to another scene")
 
@@ -266,6 +263,9 @@ def render_scene(
             "export_validation": validated.validation,
             "renders": records,
         }
+        validate_schema_payload(
+            "render-result", manifest, context="Generated render result"
+        )
         (staging / "render.json").write_text(json.dumps(manifest, indent=2) + "\n")
         if output.exists():
             _validate_replaceable_output(output, str(scene["scene_id"]))

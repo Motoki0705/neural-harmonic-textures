@@ -59,7 +59,8 @@ summaries and structured errors. Writes use atomic replace. Status values are:
 pending running completed failed invalidated skipped
 ```
 
-The JSON shape is documented by [`schemas/run.schema.json`](../schemas/run.schema.json).
+The JSON shape is documented by
+[`nht_pipeline/schemas/run.schema.json`](../nht_pipeline/schemas/run.schema.json).
 
 ## Standard scene export
 
@@ -91,8 +92,11 @@ every camera, image, point-cloud, model, checkpoint, and runtime reference to
 resolve inside that scene's export root (including through symbolic links).
 It intentionally does not check hashes, file-size identity or Git state.
 
-See [`schemas/scene.schema.json`](../schemas/scene.schema.json) and
-[`schemas/cameras.schema.json`](../schemas/cameras.schema.json).
+See [`nht_pipeline/schemas/scene.schema.json`](../nht_pipeline/schemas/scene.schema.json)
+and [`nht_pipeline/schemas/cameras.schema.json`](../nht_pipeline/schemas/cameras.schema.json).
+The packaged schemas are the single canonical structural contract. Runtime
+readers validate each payload against them before applying additional semantic,
+filesystem and numerical checks.
 
 ## Rendering boundary
 
@@ -110,9 +114,10 @@ and `post_processing=null`. Positive finite `near_plane < far_plane` values are
 part of the trainer/export/renderer contract. Output publication rejects the
 filesystem root, the scene workspace, the export tree, symbolic links, and
 ordinary files as destructive replacement targets. A non-empty existing output
-is replaceable only when its ordinary `render.json` marker has schema
-`nht_render_result_v1` and the same scene ID. Empty directories are replaceable;
-unmarked or foreign-scene directories are preserved and rejected before render.
+is replaceable only when its ordinary `render.json` marker is a complete valid
+`nht_render_result_v1` payload with the same scene ID. Empty directories are
+replaceable; unmarked, structurally invalid or foreign-scene directories are
+preserved and rejected before render.
 Each invocation uses a process-owned unique temporary staging directory and does
 not reclaim fixed-name or stale staging directories.
 

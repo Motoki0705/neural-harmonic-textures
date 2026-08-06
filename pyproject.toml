@@ -14,6 +14,7 @@ description = "Mutable video-to-SfM-to-NHT reconstruction pipeline"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+    "jsonschema>=4.25",
     "numpy>=1.26,<3",
     "Pillow>=10",
     "pycolmap>=4,<5",
@@ -21,7 +22,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-test = ["jsonschema>=4.25", "mypy>=1.17", "pytest>=8", "ruff>=0.12"]
+test = ["mypy>=1.17", "pytest>=8", "ruff>=0.12"]
 aov = ["torch>=2.4", "torchvision>=0.19"]
 sfm-learned = [
     "hloc @ git+https://github.com/cvg/Hierarchical-Localization.git",
@@ -34,6 +35,9 @@ nht-render = "nht_pipeline.render:main"
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["aov*", "nht_pipeline*"]
+
+[tool.setuptools.package-data]
+nht_pipeline = ["schemas/*.json"]
 
 [tool.ruff]
 target-version = "py311"

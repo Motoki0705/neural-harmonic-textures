@@ -13,6 +13,8 @@ from typing import Any
 import numpy as np
 from PIL import Image
 
+from .schema import validate_schema_payload
+
 CAMERA_COORDINATE_CONVENTION = "x-right, y-down, z-forward"
 
 
@@ -278,12 +280,12 @@ def load_validated_scene_export(scene_path: Path) -> ValidatedSceneExport:
     resolved_scene_path = scene_path.resolve(strict=True)
     export_root = resolved_scene_path.parent
     scene = json.loads(resolved_scene_path.read_text())
-    if scene.get("schema") != "nht_standard_scene_v1":
-        raise ValueError("Unsupported standard scene schema")
+    validate_schema_payload("scene", scene, context="scene.json")
     cameras_path = _resolve_export_reference(
         export_root, scene.get("cameras"), "Camera manifest", kind="file"
     )
     cameras_payload = json.loads(cameras_path.read_text())
+    validate_schema_payload("cameras", cameras_payload, context="cameras.json")
     cameras = cameras_payload["cameras"]
     if cameras_payload.get("camera_coordinate_convention") != scene.get(
         "camera_coordinate_convention"

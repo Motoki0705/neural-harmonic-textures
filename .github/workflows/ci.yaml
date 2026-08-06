@@ -38,7 +38,13 @@ jobs:
         run: uv run --extra test pytest -q
 
       - name: Validate JSON Schema definitions
-        run: uvx check-jsonschema --check-metaschema schemas/*.schema.json
+        run: uvx check-jsonschema --check-metaschema nht_pipeline/schemas/*.json
+
+      - name: Validate generated standard-boundary payloads
+        run: uv run --extra test pytest -q tests/test_export.py -k schema_contract
 
       - name: Build wheel and source distribution
         run: uv build
+
+      - name: Verify packaged canonical schemas
+        run: uv run python scripts/validate_built_schema_package.py

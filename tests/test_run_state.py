@@ -2,9 +2,7 @@ from __future__ import annotations
 
 import json
 import os
-from pathlib import Path
 
-import jsonschema
 import pytest
 
 from nht_pipeline.config import (
@@ -16,6 +14,7 @@ from nht_pipeline.config import (
 )
 from nht_pipeline.pipeline import STAGE_EXECUTORS, PipelineContext, run_pipeline
 from nht_pipeline.run_state import RunState
+from nht_pipeline.schema import validate_schema_payload
 from nht_pipeline.stages import descendants, execution_order
 from nht_pipeline.workspace import WorkspaceLock
 
@@ -203,11 +202,11 @@ def test_failed_stage_discards_temporary_output(tmp_path, monkeypatch) -> None:
     error = state.payload["stages"]["frames"]["error"]
     assert error["category"] == "process_signal"
 
-    schema_path = Path(__file__).resolve().parents[1] / "schemas/run.schema.json"
-    jsonschema.Draft202012Validator(
-        json.loads(schema_path.read_text()),
-        format_checker=jsonschema.FormatChecker(),
-    ).validate(json.loads((tmp_path / "run.json").read_text()))
+    validate_schema_payload(
+        "run",
+        json.loads((tmp_path / "run.json").read_text()),
+        context="run fixture",
+    )
 
 
 def test_workspace_lock_refuses_live_parallel_process(tmp_path) -> None:

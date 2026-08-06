@@ -149,9 +149,11 @@ nht-render --scene WORKSPACE/export/scene.json \
 
 出力はcameraごとのfloat32 `rgb.npy`、`alpha.npy`、`depth.npy`とpreview、および
 `nht_render_result_v1`の`render.json`です。request/result schemaは
-[`schemas/render-request.schema.json`](schemas/render-request.schema.json) と
-[`schemas/render-result.schema.json`](schemas/render-result.schema.json) に固定しています。
-既存の非空outputを置換できるのは、同じscene IDの有効な`render.json`を持つNHT
+[`nht_pipeline/schemas/render-request.schema.json`](nht_pipeline/schemas/render-request.schema.json) と
+[`nht_pipeline/schemas/render-result.schema.json`](nht_pipeline/schemas/render-result.schema.json) に固定しています。
+package内のJSON Schemaが標準file boundaryの構造上の唯一の正本であり、runtimeは
+Schema照合後に座標系・file参照等の追加semantic validationを行います。
+既存の非空outputを置換できるのは、同じscene IDのSchema-completeな`render.json`を持つNHT
 render成果物だけです。空directoryは置換できますが、markerのない非空directoryや
 別sceneの成果物は内容を保持したまま拒否します。stagingは実行ごとに一意です。
 
@@ -169,7 +171,7 @@ token列内のlogical indexです。例えばmaskが`2,5`で`cuda_device: 1`な�
 uv run --extra test pytest -q
 uv run --extra test ruff check nht_pipeline tests scripts
 uv run --extra test mypy nht_pipeline
-uvx check-jsonschema --check-metaschema schemas/*.schema.json
+uvx check-jsonschema --check-metaschema nht_pipeline/schemas/*.json
 uv build
 ```
 

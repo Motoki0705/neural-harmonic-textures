@@ -3,13 +3,13 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import jsonschema
 import numpy as np
 import pytest
 from PIL import Image
 
 from nht_pipeline.export import validate_scene_export
 from nht_pipeline.render import render_scene
+from nht_pipeline.schema import schema_validator, validate_schema_payload
 
 
 def _valid_export(tmp_path):
@@ -22,11 +22,15 @@ def _valid_export(tmp_path):
     cameras = {
         "schema": "nht_standard_cameras_v1",
         "camera_coordinate_convention": "x-right, y-down, z-forward",
+        "transform_semantics": (
+            "camera_to_scene maps homogeneous camera coordinates to scene coordinates"
+        ),
         "cameras": [
             {
                 "camera_id": "frame_000000",
                 "source_frame_index": 0,
                 "time_seconds": 0.0,
+                "split": "train",
                 "width": 16,
                 "height": 12,
                 "intrinsics": {
@@ -37,6 +41,17 @@ def _valid_export(tmp_path):
                 },
                 "camera_to_scene": np.eye(4).tolist(),
                 "image": "images/frame_000000.jpg",
+                "source_image_processing": {
+                    "source_resolution": [16, 12],
+                    "crop_xywh": [0, 0, 16, 12],
+                    "undistorted": True,
+                    "data_factor": 1,
+                },
+                "diagnostics": {
+                    "sfm_camera_id": 0,
+                    "sfm_camera_to_world": np.eye(4).tolist(),
+                },
+                "group": "default",
             }
         ],
     }
@@ -55,6 +70,8 @@ def _valid_export(tmp_path):
             "path": "points_scene.npy",
             "shape": [1, 6],
             "dtype": "float32",
+            "columns": ["x", "y", "z", "red", "green", "blue"],
+            "color_range": [0.0, 1.0],
         },
         "scene_from_sfm": np.eye(4).tolist(),
         "sfm_from_scene": np.eye(4).tolist(),
@@ -70,7 +87,14 @@ def _valid_export(tmp_path):
             "model": "model",
             "checkpoint": "model/ckpts/model.pt",
             "runtime_config": "model/runtime-config.json",
+            "outputs": {
+                "rgb": "float32 HxWx3",
+                "alpha": "float32 HxWx1",
+                "depth": "float32 HxWx1",
+            },
         },
+        "sfm_summary": {},
+        "nht_training_summary": {},
         "capabilities": ["nht_rendering_model"],
     }
     (tmp_path / "model/runtime-config.json").write_text(
@@ -225,7 +249,9 @@ def test_validator_rejects_parent_traversal_for_every_export_reference(
         scene["renderer"]["runtime_config"] = "../runtime-config.json"
     (tmp_path / "scene.json").write_text(json.dumps(scene))
 
-    with pytest.raises(ValueError, match="export-relative|outside image_root"):
+    with pytest.raises(
+        ValueError, match="canonical.*schema|export-relative|outside image_root"
+    ):
         validate_scene_export(tmp_path / "scene.json")
 
 
@@ -311,14 +337,7 @@ def test_render_request_schema_matches_runtime_matrix_envelope(tmp_path, case) -
         camera["intrinsics"]["matrix"][2] = [0, 0, 2]
     else:
         camera["intrinsics"]["matrix"][0][0] = -1
-    schema = json.loads(
-        (
-            Path(__file__).resolve().parents[1] / "schemas/render-request.schema.json"
-        ).read_text()
-    )
-
-    with pytest.raises(jsonschema.ValidationError):
-        jsonschema.Draft202012Validator(schema).validate(request)
+    assert not schema_validator("render-request").is_valid(request)
 
 
 @pytest.mark.parametrize("target", ["filesystem_root", "export_root", "workspace"])
@@ -354,6 +373,29 @@ def _fake_successful_render(_checkpoint, _runtime, camera):
     )
 
 
+def _render_result_marker(scene_id: str) -> dict:
+    return {
+        "schema": "nht_render_result_v1",
+        "scene_schema": "nht_standard_scene_v1",
+        "scene_id": scene_id,
+        "coordinate_space": "canonical NHT scene space",
+        "export_validation": {},
+        "renders": [
+            {
+                "camera_id": "old-view",
+                "request_source": "observed",
+                "width": 1,
+                "height": 1,
+                "rgb": "old-view/rgb.npy",
+                "rgb_preview": "old-view/rgb.png",
+                "alpha": "old-view/alpha.npy",
+                "alpha_preview": "old-view/alpha.png",
+                "depth": "old-view/depth.npy",
+            }
+        ],
+    }
+
+
 def test_renderer_preserves_unowned_nonempty_output_before_render(
     tmp_path, monkeypatch
 ) -> None:
@@ -382,9 +424,7 @@ def test_renderer_preserves_output_owned_by_another_scene(
     output.mkdir()
     sentinel = output / "important.txt"
     sentinel.write_text("preserve me")
-    (output / "render.json").write_text(
-        json.dumps({"schema": "nht_render_result_v1", "scene_id": "B99"})
-    )
+    (output / "render.json").write_text(json.dumps(_render_result_marker("B99")))
     monkeypatch.setattr("nht_pipeline.render._render_one", _fake_successful_render)
 
     with pytest.raises(ValueError, match="another scene"):
@@ -403,7 +443,7 @@ def test_renderer_replaces_only_empty_or_owned_output(
     if existing == "owned":
         (output / "obsolete.txt").write_text("replace me")
         (output / "render.json").write_text(
-            json.dumps({"schema": "nht_render_result_v1", "scene_id": "B00"})
+            json.dumps(_render_result_marker("B00"))
         )
     monkeypatch.setattr("nht_pipeline.render._render_one", _fake_successful_render)
 
@@ -428,3 +468,83 @@ def test_renderer_does_not_reclaim_fixed_name_staging_directory(
 
     assert sentinel.read_text() == "not owned by this process"
     assert not list(output.parent.glob(f".{output.name}.*.staging"))
+
+
+def test_schema_contract_accepts_all_generated_standard_payloads(
+    tmp_path, monkeypatch
+) -> None:
+    cameras = _valid_export(tmp_path)
+    scene = json.loads((tmp_path / "scene.json").read_text())
+    request = _arbitrary_request(cameras, {})
+    request_path = tmp_path / "request.json"
+    request_path.write_text(json.dumps(request))
+    output = tmp_path.parent / f"{tmp_path.name}-schema-render"
+    monkeypatch.setattr("nht_pipeline.render._render_one", _fake_successful_render)
+
+    validate_scene_export(tmp_path / "scene.json")
+    render_scene(tmp_path / "scene.json", output, request_path=request_path)
+    result = json.loads((output / "render.json").read_text())
+    payloads = {
+        "scene": scene,
+        "cameras": cameras,
+        "render-request": request,
+        "render-result": result,
+    }
+
+    for name, payload in payloads.items():
+        assert schema_validator(name).is_valid(payload)
+        validate_schema_payload(name, payload, context=f"generated {name}")
+
+
+@pytest.mark.parametrize(
+    "boundary",
+    ["scene", "cameras", "render-request", "render-result"],
+    ids=[
+        "scene-missing-required",
+        "cameras-unknown-field",
+        "request-wrong-discriminator",
+        "result-unknown-field",
+    ],
+)
+def test_schema_contract_runtime_rejects_the_same_structural_payloads(
+    tmp_path, monkeypatch, boundary
+) -> None:
+    cameras = _valid_export(tmp_path)
+    scene_path = tmp_path / "scene.json"
+    if boundary == "scene":
+        payload = json.loads(scene_path.read_text())
+        payload.pop("sfm_summary")
+        scene_path.write_text(json.dumps(payload))
+        runtime_call = lambda: validate_scene_export(scene_path)
+    elif boundary == "cameras":
+        payload = cameras
+        payload["unknown"] = True
+        (tmp_path / "cameras.json").write_text(json.dumps(payload))
+        runtime_call = lambda: validate_scene_export(scene_path)
+    elif boundary == "render-request":
+        payload = _arbitrary_request(cameras, {})
+        payload["schema"] = "nht_render_request_v0"
+        request_path = tmp_path / "invalid-request.json"
+        request_path.write_text(json.dumps(payload))
+        runtime_call = lambda: render_scene(
+            scene_path,
+            tmp_path.parent / f"{tmp_path.name}-invalid-request-render",
+            request_path=request_path,
+        )
+    else:
+        payload = _render_result_marker("B00")
+        payload["unknown"] = True
+        output = tmp_path.parent / f"{tmp_path.name}-invalid-result-render"
+        output.mkdir()
+        (output / "render.json").write_text(json.dumps(payload))
+        runtime_call = lambda: render_scene(
+            scene_path, output, camera_ids=["frame_000000"]
+        )
+
+    monkeypatch.setattr(
+        "nht_pipeline.render._render_one",
+        lambda *_args: pytest.fail("schema-invalid payload reached the renderer"),
+    )
+    assert not schema_validator(boundary).is_valid(payload)
+    with pytest.raises(ValueError, match="canonical.*schema"):
+        runtime_call()
