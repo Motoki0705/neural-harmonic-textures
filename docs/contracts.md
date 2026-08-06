@@ -30,11 +30,24 @@ internals.
 required inputs, owned paths and fixed outputs. Executors are registered
 individually in `nht_pipeline.pipeline.STAGE_EXECUTORS`.
 
-Before a rerun, the requested stage and all DAG descendants are invalidated.
-Each executor removes only its declared owned paths, writes the fixed outputs,
-and is marked completed only after output and semantic checks pass. Missing
-upstream outputs fail before execution. A failed stage may leave diagnostic
-partial files, but `run.json` marks them failed and no downstream stage runs.
+Before a rerun, the effective stage and all DAG descendants are marked
+`invalidated` and their declared published paths are physically removed. Each
+executor writes only below `.staging/<stage>`, validates fixed outputs and semantic
+invariants there, then renames owned paths to their canonical locations. The stage
+is marked `completed` only after publication. A consumer must require `completed`;
+an output briefly present while the stage record is still `running` is not public.
+On failure, temporary outputs are deleted and canonical descendants stay absent.
+
+The workspace lock is acquired before manifest/config inspection. A live owner is
+rejected. A dead owner plus `running` record is recovered as an explicit
+`process_interrupted` failure, stale staging is cleaned, and rerun publication
+follows the same transaction.
+
+Config ownership is defined by the DAG: `frames`, `preprocess`, `seed/sfm`,
+`seed/nht_training`, and `export`. A structural comparison against the previous
+resolved config expands a too-late request to the earliest owning stage. A changed
+input video always expands to `frames`. Every attempt stores the exact owned config
+subset used by that stage.
 
 ## Mutable run manifest
 
@@ -57,10 +70,18 @@ scene.json  cameras.json  points_scene.npy  images/  model/
 ```
 
 Camera transforms are `camera_to_scene` homogeneous matrices. Camera coordinates
-follow COLMAP (`x` right, `y` down, `z` forward); scene coordinates are the
-selected right-handed COLMAP world coordinates. Intrinsics and image dimensions
-refer to full-resolution exported images. `points_scene.npy` is finite float32
-`N×6` data with XYZ and RGB normalized to `[0, 1]`.
+follow COLMAP (`x` right, `y` down, `z` forward). Canonical scene space is the
+right-handed normalized world in which the exported NHT checkpoint Gaussian means
+actually live. `scene_from_sfm` is the effective parser transform, including
+camera normalization, principal-axis alignment and any upside-down correction;
+`sfm_from_scene` is its inverse. `cameras.json`, `points_scene.npy`, and the NHT
+model all use this same space.
+
+Consumer cameras are the parser's effective undistorted `PINHOLE` cameras after
+crop/downsampling. Their matrices, crop, source resolution and exported image
+resolution are authoritative. Raw COLMAP camera IDs and transforms exist only
+under each camera's `diagnostics` field. `points_scene.npy` is finite float32
+`N×6` data with canonical XYZ and RGB normalized to `[0, 1]`.
 
 The validator checks schema fields, conventions, shapes, dtype, finite values,
 color range, unique IDs and image paths, positive focal length, homogeneous
@@ -70,10 +91,18 @@ It intentionally does not check hashes, file-size identity or Git state.
 See [`schemas/scene.schema.json`](../schemas/scene.schema.json) and
 [`schemas/cameras.schema.json`](../schemas/cameras.schema.json).
 
+## Rendering boundary
+
+`nht-render --scene export/scene.json` is the stable subprocess boundary. The
+caller may select exported observed camera IDs or supply an
+`nht_render_request_v1` file containing arbitrary `camera_to_scene`, PINHOLE
+intrinsics and resolution. The renderer resolves runtime/checkpoint paths only
+through `scene.json`, starts with a clean staging output, and publishes
+`nht_render_result_v1` only after every RGB/alpha/depth array is complete. NHT
+module names, checkpoint keys and internal directories are not part of the caller
+contract.
+
 ## Downstream integration status
 
-This repository now publishes the independent command/file boundary. The
-consumer migration in `Motoki0705/tennis-lab#695` remains external and open: its
-current provider path still reads COLMAP binaries and immutable hash manifests.
-Until that issue replaces the old provider and completes alignment/dataset
-generation from this `export/`, the cross-repository acceptance item is pending.
+Cross-repository status and replay evidence are recorded in the production
+acceptance report rather than changing this file contract.

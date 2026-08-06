@@ -9,6 +9,9 @@
     "status",
     "input_video",
     "resolved_config",
+    "requested_from_stage",
+    "effective_from_stage",
+    "requested_through_stage",
     "created_at_utc",
     "updated_at_utc",
     "stages"
@@ -20,6 +23,9 @@
     "input_video": {"type": ["string", "null"]},
     "resolved_config": {"const": "resolved-config.yaml"},
     "requested_from_stage": {
+      "anyOf": [{"$ref": "#/$defs/stageName"}, {"type": "null"}]
+    },
+    "effective_from_stage": {
       "anyOf": [{"$ref": "#/$defs/stageName"}, {"type": "null"}]
     },
     "requested_through_stage": {
@@ -77,6 +83,7 @@
         "attempts",
         "outputs",
         "summary",
+        "config",
         "error",
         "started_at_utc",
         "finished_at_utc"
@@ -86,14 +93,29 @@
         "attempts": {"type": "integer", "minimum": 0},
         "outputs": {"type": "array", "items": {"type": "string"}},
         "summary": {"type": ["object", "null"]},
+        "config": {"type": ["object", "null"]},
         "error": {
           "anyOf": [
             {
               "type": "object",
-              "required": ["type", "message"],
+              "required": ["type", "message", "category"],
               "properties": {
                 "type": {"type": ["string", "null"]},
-                "message": {"type": "string"}
+                "message": {"type": "string"},
+                "category": {
+                  "enum": [
+                    "oom",
+                    "missing_dependency",
+                    "invalid_camera_model",
+                    "all_candidates_rejected",
+                    "checkpoint_missing",
+                    "non_finite_metric",
+                    "process_signal",
+                    "process_nonzero_exit",
+                    "process_interrupted",
+                    "unclassified"
+                  ]
+                }
               },
               "additionalProperties": false
             },

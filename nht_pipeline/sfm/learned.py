@@ -2,12 +2,32 @@
 
 from __future__ import annotations
 
+import copy
 import sys
 import time
 from pathlib import Path
 from typing import Any
 
 from .pairs import write_pair_graph
+
+
+def learned_feature_config(base: dict[str, Any], max_image_size: int) -> dict[str, Any]:
+    """Apply the public candidate resize setting to an isolated HLOC config."""
+    config = copy.deepcopy(base)
+    config.setdefault("preprocessing", {})["resize_max"] = int(max_image_size)
+    return config
+
+
+def _camera_mode(config: dict[str, Any], pycolmap: Any) -> Any:
+    sharing = config.get("camera_sharing", "single")
+    if sharing == "single":
+        return pycolmap.CameraMode.SINGLE
+    if sharing == "per_image":
+        return pycolmap.CameraMode.PER_IMAGE
+    raise ValueError(
+        "HLOC supports camera_sharing=single or per_image; use the SIFT backend "
+        "for per_folder or segments"
+    )
 
 
 def _add_import_path(value: str | None) -> None:
@@ -35,14 +55,20 @@ def run_aliked_lightglue(
         )
     except ImportError as error:  # pragma: no cover - optional retry runtime
         raise RuntimeError(
-            "The ALIKED retry requires HLOC and LightGlue; install them or set "
-            "sfm candidate hloc_root/lightglue_root/site_packages"
+            "Missing dependency for the ALIKED retry: "
+            f"{type(error).__name__}: {error}. Install HLOC and LightGlue or set "
+            "sfm candidate hloc_root/lightglue_root/site_packages."
         ) from error
 
     started = time.monotonic()
     candidate_dir.mkdir(parents=True, exist_ok=True)
     features = extract_features.main(
-        extract_features.confs["aliked-n16"], image_dir, candidate_dir
+        learned_feature_config(
+            extract_features.confs["aliked-n16"],
+            int(config.get("max_image_size", 1024)),
+        ),
+        image_dir,
+        candidate_dir,
     )
     retrieval = extract_features.main(
         extract_features.confs["netvlad"], image_dir, candidate_dir
@@ -84,7 +110,7 @@ def run_aliked_lightglue(
         pairs,
         features,
         matches_path,
-        camera_mode=pycolmap.CameraMode.SINGLE,
+        camera_mode=_camera_mode(config, pycolmap),
         image_options={
             "camera_model": config.get("camera_model", "OPENCV"),
             "default_focal_length_factor": 1.0,
@@ -99,4 +125,7 @@ def run_aliked_lightglue(
         "pair_graph": pair_summary,
         "selected_registered_images": result.num_reg_images(),
         "selected_sparse_points": result.num_points3D(),
+        "camera_sharing": config.get("camera_sharing", "single"),
+        "reconstructed_cameras": result.num_cameras(),
+        "effective_seed": seed,
     }

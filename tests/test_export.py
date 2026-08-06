@@ -3,9 +3,11 @@ from __future__ import annotations
 import json
 
 import numpy as np
+import pytest
 from PIL import Image
 
 from nht_pipeline.export import validate_scene_export
+from nht_pipeline.render import render_scene
 
 
 def _valid_export(tmp_path):
@@ -25,6 +27,8 @@ def _valid_export(tmp_path):
                 "width": 16,
                 "height": 12,
                 "intrinsics": {
+                    "model": "PINHOLE",
+                    "distortion_model": "NONE",
                     "params": [10.0, 10.0, 8.0, 6.0],
                     "matrix": [[10, 0, 8], [0, 10, 6], [0, 0, 1]],
                 },
@@ -36,6 +40,7 @@ def _valid_export(tmp_path):
     (tmp_path / "cameras.json").write_text(json.dumps(cameras))
     scene = {
         "schema": "nht_standard_scene_v1",
+        "scene_id": "B00",
         "camera_coordinate_convention": "x-right, y-down, z-forward",
         "scene_coordinate_convention": "right-handed",
         "pixel_coordinate_convention": "top-left",
@@ -48,9 +53,22 @@ def _valid_export(tmp_path):
             "dtype": "float32",
         },
         "scene_from_sfm": np.eye(4).tolist(),
+        "sfm_from_scene": np.eye(4).tolist(),
+        "normalization": {
+            "applied": True,
+            "camera_similarity": np.eye(4).tolist(),
+            "principal_axis_alignment": np.eye(4).tolist(),
+            "upside_down_correction": np.eye(4).tolist(),
+        },
         "model_root": "model",
+        "renderer": {
+            "command": "nht-render",
+            "checkpoint": "model/ckpts/model.pt",
+            "runtime_config": "model/runtime-config.json",
+        },
         "capabilities": ["nht_rendering_model"],
     }
+    (tmp_path / "model/runtime-config.json").write_text("{}")
     (tmp_path / "scene.json").write_text(json.dumps(scene))
     return cameras
 
@@ -75,3 +93,75 @@ def test_export_validator_rejects_improper_rotation(tmp_path) -> None:
         assert "Improper camera rotation" in str(error)
     else:
         raise AssertionError("Expected an improper-rotation validation error")
+
+
+def test_render_boundary_publishes_observed_and_arbitrary_rgb_alpha_depth(
+    tmp_path, monkeypatch
+) -> None:
+    cameras = _valid_export(tmp_path)
+    request = {
+        "schema": "nht_render_request_v1",
+        "cameras": [
+            {
+                "camera_id": "novel-view",
+                "width": cameras["cameras"][0]["width"],
+                "height": cameras["cameras"][0]["height"],
+                "intrinsics": cameras["cameras"][0]["intrinsics"],
+                "camera_to_scene": cameras["cameras"][0]["camera_to_scene"],
+            }
+        ],
+    }
+    request_path = tmp_path / "request.json"
+    request_path.write_text(json.dumps(request))
+
+    def fake_render(_checkpoint, _runtime, camera):
+        shape = (camera["height"], camera["width"])
+        return (
+            np.full((*shape, 3), 0.5, dtype=np.float32),
+            np.ones((*shape, 1), dtype=np.float32),
+            np.full((*shape, 1), 2.0, dtype=np.float32),
+        )
+
+    monkeypatch.setattr("nht_pipeline.render._render_one", fake_render)
+    output = tmp_path / "render"
+    result = render_scene(
+        tmp_path / "scene.json",
+        output,
+        camera_ids=["frame_000000"],
+        request_path=request_path,
+    )
+
+    assert [record["request_source"] for record in result["renders"]] == [
+        "observed",
+        "arbitrary",
+    ]
+    for camera_id in ("frame_000000", "novel-view"):
+        assert (output / camera_id / "rgb.npy").is_file()
+        assert (output / camera_id / "alpha.npy").is_file()
+        assert (output / camera_id / "depth.npy").is_file()
+    assert json.loads((output / "render.json").read_text())["schema"] == (
+        "nht_render_result_v1"
+    )
+
+
+def test_render_boundary_rejects_nonfinite_output_without_publication(
+    tmp_path, monkeypatch
+) -> None:
+    _valid_export(tmp_path)
+
+    def fake_render(_checkpoint, _runtime, camera):
+        shape = (camera["height"], camera["width"])
+        return (
+            np.full((*shape, 3), np.nan, dtype=np.float32),
+            np.ones((*shape, 1), dtype=np.float32),
+            np.ones((*shape, 1), dtype=np.float32),
+        )
+
+    monkeypatch.setattr("nht_pipeline.render._render_one", fake_render)
+    output = tmp_path / "render"
+    with pytest.raises(RuntimeError, match="invalid rgb"):
+        render_scene(
+            tmp_path / "scene.json", output, camera_ids=["frame_000000"]
+        )
+    assert not output.exists()
+    assert not (tmp_path / ".render.staging").exists()

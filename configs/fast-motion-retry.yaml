@@ -1,28 +1,28 @@
 schema: nht_pipeline_config_v1
 seed: 42
 frames:
-  frames_per_second: 1.0
+  frames_per_second: 5.0
   jpeg_quality: 2
 preprocess:
-  absolute_minimum_sharpness: 10.0
-  p05_sharpness_fraction: 0.15
-  maximum_clipped_fraction: 0.60
-  minimum_temporal_difference: 1.0
+  absolute_minimum_sharpness: 5.0
+  p05_sharpness_fraction: 0.10
+  maximum_clipped_fraction: 0.70
+  minimum_temporal_difference: 0.5
   training_image_factor: 2
 sfm:
-  minimum_supported_points_per_camera: 100
+  minimum_supported_points_per_camera: 50
   quality_gates:
-    minimum_registration_ratio: 0.95
-    minimum_supported_registration_ratio: 0.95
-    minimum_sparse_points: 50000
-    minimum_median_track_length: 3.0
+    minimum_registration_ratio: 0.85
+    minimum_supported_registration_ratio: 0.80
+    minimum_sparse_points: 3000
+    minimum_median_track_length: 2.0
     maximum_p95_reprojection_error_px: 3.0
-    maximum_trajectory_step_ratio: 5.0
-    maximum_trajectory_step_outliers: 0
-    maximum_planarity_ratio: 0.15
+    maximum_trajectory_step_ratio: 8.0
+    maximum_trajectory_step_outliers: 1
+    maximum_planarity_ratio: 0.50
     maximum_rotation_step_deg: 120.0
     maximum_mapping_components: 1
-    maximum_near_duplicate_fraction: 0.05
+    maximum_near_duplicate_fraction: 0.10
     minimum_focal_to_width: 0.1
     maximum_focal_to_width: 5.0
     minimum_points_per_supported_camera: 100.0
@@ -41,7 +41,7 @@ sfm:
       run_condition: always
       camera_model: OPENCV
       camera_sharing: single
-      sequential_overlap: 10
+      sequential_overlap: 15
       quadratic_overlap: true
       max_features: 4096
       max_image_size: 1920
@@ -51,8 +51,8 @@ sfm:
       run_condition: primary_rejected
       camera_model: OPENCV
       camera_sharing: single
-      sequential_overlap: 10
-      retrieval_neighbors: 10
+      sequential_overlap: 15
+      retrieval_neighbors: 15
       max_image_size: 1024
       num_threads: 4
   maximum_candidates: 2

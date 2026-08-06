@@ -16,7 +16,9 @@
     "image_root",
     "model_root",
     "scene_from_sfm",
+    "sfm_from_scene",
     "normalization",
+    "renderer",
     "sfm_summary",
     "nht_training_summary",
     "capabilities"
@@ -56,12 +58,41 @@
     "image_root": {"const": "images"},
     "model_root": {"const": "model"},
     "scene_from_sfm": {"$ref": "#/$defs/matrix4"},
+    "sfm_from_scene": {"$ref": "#/$defs/matrix4"},
     "normalization": {
       "type": "object",
-      "required": ["applied", "transform"],
+      "required": [
+        "applied",
+        "camera_similarity",
+        "principal_axis_alignment",
+        "upside_down_correction"
+      ],
       "properties": {
-        "applied": {"type": "boolean"},
-        "transform": {"$ref": "#/$defs/matrix4"}
+        "applied": {"const": true},
+        "camera_similarity": {"$ref": "#/$defs/matrix4"},
+        "principal_axis_alignment": {"$ref": "#/$defs/matrix4"},
+        "upside_down_correction": {"$ref": "#/$defs/matrix4"}
+      },
+      "additionalProperties": false
+    },
+    "renderer": {
+      "type": "object",
+      "required": ["command", "model", "runtime_config", "checkpoint", "outputs"],
+      "properties": {
+        "command": {"const": "nht-render"},
+        "model": {"const": "model"},
+        "runtime_config": {"type": "string", "pattern": "^model/"},
+        "checkpoint": {"type": "string", "pattern": "^model/"},
+        "outputs": {
+          "type": "object",
+          "required": ["rgb", "alpha", "depth"],
+          "properties": {
+            "rgb": {"type": "string"},
+            "alpha": {"type": "string"},
+            "depth": {"type": "string"}
+          },
+          "additionalProperties": false
+        }
       },
       "additionalProperties": false
     },

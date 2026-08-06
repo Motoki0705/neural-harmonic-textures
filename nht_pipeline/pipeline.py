@@ -5,10 +5,11 @@ from __future__ import annotations
 import json
 import shutil
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
+from .errors import classify_error
 from .export import create_scene_export, validate_scene_export
 from .frames import (
     downsample_images,
@@ -17,13 +18,23 @@ from .frames import (
     preprocess_frames,
     write_json,
 )
+from .preflight import preflight_stage
 from .run_state import RunState
 from .sfm.classic import run_sift_incremental
 from .sfm.learned import run_aliked_lightglue
 from .sfm.metrics import evaluate_reconstruction, write_trajectory_diagnostics
 from .sfm.select import NoValidCandidateError, select_candidate
-from .stages import STAGE_BY_NAME, execution_order
+from .stages import execution_order, stage_config
 from .training import run_training
+from .workspace import (
+    capture_stage_log,
+    cleanup_staging,
+    invalidate_published_outputs,
+    link_or_copy,
+    publish_stage,
+    remove_path,
+    stage_staging_root,
+)
 
 
 @dataclass(frozen=True)
@@ -32,25 +43,11 @@ class PipelineContext:
     state: RunState
     config: dict[str, Any]
     repository_root: Path
+    staging_root: Path | None = None
 
-
-def _remove_owned_outputs(context: PipelineContext, stage_name: str) -> None:
-    workspace = context.workspace.resolve()
-    for relative in STAGE_BY_NAME[stage_name].owned_paths:
-        path = workspace / relative
-        resolved_parent = path.parent.resolve()
-        if (
-            not resolved_parent.is_relative_to(workspace)
-            or path == workspace
-            or relative.name in {"", ".", ".."}
-        ):
-            raise RuntimeError(f"Unsafe stage-owned path: {path}")
-        # Do not resolve the final component: if it is a symlink, remove only
-        # the link instead of recursively deleting its target.
-        if path.is_symlink() or path.is_file():
-            path.unlink()
-        elif path.is_dir():
-            shutil.rmtree(path)
+    @property
+    def output_root(self) -> Path:
+        return self.staging_root or self.workspace
 
 
 def _run_frames(context: PipelineContext) -> dict[str, Any]:
@@ -60,11 +57,11 @@ def _run_frames(context: PipelineContext) -> dict[str, Any]:
     config = context.config["frames"]
     summary = extract_frames(
         Path(input_value),
-        context.workspace / "frames/raw",
+        context.output_root / "frames/raw",
         float(config["frames_per_second"]),
         int(config["jpeg_quality"]),
     )
-    write_json(context.workspace / "frames/extraction.json", summary)
+    write_json(context.output_root / "frames/extraction.json", summary)
     return summary
 
 
@@ -73,7 +70,7 @@ def _run_preprocess(context: PipelineContext) -> dict[str, Any]:
     config = context.config["preprocess"]
     summary = preprocess_frames(
         context.workspace / "frames/raw",
-        context.workspace / "frames/images",
+        context.output_root / "frames/images",
         float(frame_config["frames_per_second"]),
         float(config["absolute_minimum_sharpness"]),
         float(config["p05_sharpness_fraction"]),
@@ -81,11 +78,11 @@ def _run_preprocess(context: PipelineContext) -> dict[str, Any]:
         float(config["minimum_temporal_difference"]),
     )
     summary["training_images"] = downsample_images(
-        context.workspace / "frames/images",
-        context.workspace / "frames/training-images",
+        context.output_root / "frames/images",
+        context.output_root / "frames/training-images",
         int(config["training_image_factor"]),
     )
-    write_json(context.workspace / "frames/frames.json", summary)
+    write_json(context.output_root / "frames/frames.json", summary)
     return {key: value for key, value in summary.items() if key != "frames"}
 
 
@@ -121,7 +118,7 @@ def _run_sfm(context: PipelineContext) -> dict[str, Any]:
                 }
             )
             continue
-        candidate_dir = context.workspace / "sfm/candidates" / identifier
+        candidate_dir = context.output_root / "sfm/candidates" / identifier
         candidate_dir.mkdir(parents=True, exist_ok=True)
         backend_name = candidate_config["backend"]
         backend = SFM_BACKENDS.get(backend_name)
@@ -144,8 +141,19 @@ def _run_sfm(context: PipelineContext) -> dict[str, Any]:
                 image_dir,
                 input_count,
                 int(sfm_config["minimum_supported_points_per_camera"]),
-                sfm_config["quality_gates"],
-                int(runtime.get("models_produced", 1)),
+                (
+                    {
+                        **sfm_config["quality_gates"],
+                        **sfm_config.get("short_clip_quality_gates", {}),
+                    }
+                    if input_count <= int(sfm_config.get("short_clip_max_images", 90))
+                    else sfm_config["quality_gates"]
+                ),
+            )
+            metrics["quality_profile"] = (
+                "short_clip"
+                if input_count <= int(sfm_config.get("short_clip_max_images", 90))
+                else "standard"
             )
             write_trajectory_diagnostics(candidate_dir / "model", candidate_dir)
             runtime["stored_bytes"] = _directory_size(candidate_dir)
@@ -165,7 +173,11 @@ def _run_sfm(context: PipelineContext) -> dict[str, Any]:
             record.update(
                 {
                     "status": "failed",
-                    "error": {"type": type(error).__name__, "message": str(error)},
+                    "error": {
+                        "type": type(error).__name__,
+                        "message": str(error),
+                        "category": classify_error(error),
+                    },
                 }
             )
         candidate_records.append(record)
@@ -178,10 +190,26 @@ def _run_sfm(context: PipelineContext) -> dict[str, Any]:
         "completed_candidates": sum(
             record["status"] == "completed" for record in candidate_records
         ),
+        "effective_seeds": {
+            "sfm": int(context.config["seed"]),
+            "pair_generation": int(context.config["seed"]),
+        },
     }
-    write_json(context.workspace / "sfm/candidates/candidates.json", manifest)
+    write_json(context.output_root / "sfm/candidates/candidates.json", manifest)
+    attempt = context.state.payload["stages"]["sfm"]["attempts"]
+    diagnostic_path = (
+        context.workspace / "logs/sfm" / f"attempt-{attempt}-candidates.json"
+    )
+    write_json(diagnostic_path, manifest)
     if not manifest["completed_candidates"]:
-        raise RuntimeError("Every configured SfM candidate failed to execute")
+        failures = {
+            record["id"]: record.get("error")
+            for record in candidate_records
+            if record["status"] == "failed"
+        }
+        raise RuntimeError(
+            f"All SfM candidates failed to execute: {failures}"
+        )
     return manifest
 
 
@@ -194,7 +222,7 @@ def _run_sfm_selection(context: PipelineContext) -> dict[str, Any]:
         for record in candidates_manifest["candidates"]
         if record["status"] == "completed"
     ]
-    diagnostics = context.workspace / "sfm/diagnostics"
+    diagnostics = context.output_root / "sfm/diagnostics"
     diagnostics.mkdir(parents=True, exist_ok=True)
     comparison_path = diagnostics / "candidate-comparison.json"
     try:
@@ -218,7 +246,7 @@ def _run_sfm_selection(context: PipelineContext) -> dict[str, Any]:
         raise
     identifier = selection["selected_candidate"]
     source_model = context.workspace / "sfm/candidates" / identifier / "model"
-    destination_model = context.workspace / "sfm/model"
+    destination_model = context.output_root / "sfm/model"
     shutil.copytree(source_model, destination_model)
     write_json(diagnostics / "selection.json", selection)
     write_json(
@@ -234,7 +262,7 @@ def _run_sfm_selection(context: PipelineContext) -> dict[str, Any]:
         **selection,
         "model": "model",
     }
-    write_json(context.workspace / "sfm/reconstruction.json", reconstruction)
+    write_json(context.output_root / "sfm/reconstruction.json", reconstruction)
     return {
         "selected_candidate": identifier,
         "selected_backend": selection["selected_backend"],
@@ -254,23 +282,40 @@ def _run_nht_training(context: PipelineContext) -> dict[str, Any]:
         raise ValueError(
             "nht_training.data_factor must equal preprocess.training_image_factor"
         )
-    dataset = context.workspace / "3dgs/dataset"
+    dataset = context.output_root / "3dgs/dataset"
     sparse = dataset / "sparse/0"
     sparse.parent.mkdir(parents=True, exist_ok=True)
     shutil.copytree(context.workspace / "sfm/model", sparse)
-    (dataset / "images").symlink_to(
-        context.workspace / "frames/images", target_is_directory=True
+    link_methods = {
+        "images": link_or_copy(
+            context.workspace / "frames/images", dataset / "images", directory=True
+        ),
+        f"images_{factor}": link_or_copy(
+            context.workspace / "frames/training-images",
+            dataset / f"images_{factor}",
+            directory=True,
+        ),
+    }
+    output_root = context.output_root / "3dgs"
+    training_config = {**config, "seed": int(context.config["seed"])}
+    manifest = run_training(
+        dataset,
+        output_root,
+        training_config,
+        context.repository_root,
     )
-    (dataset / f"images_{factor}").symlink_to(
-        context.workspace / "frames/training-images", target_is_directory=True
-    )
-    output_root = context.workspace / "3dgs"
-    manifest = run_training(dataset, output_root, config, context.repository_root)
+    manifest["dataset_link_methods"] = link_methods
     diagnostics = output_root / "diagnostics"
     diagnostics.mkdir(parents=True, exist_ok=True)
     write_json(diagnostics / "training-summary.json", manifest)
     renders = output_root / "renders"
-    renders.symlink_to(output_root / "model/renders", target_is_directory=True)
+    try:
+        renders.symlink_to(Path("model/renders"), target_is_directory=True)
+        manifest["renders_link_method"] = "relative_symlink"
+    except OSError:
+        shutil.copytree(output_root / "model/renders", renders)
+        manifest["renders_link_method"] = "copy"
+    write_json(output_root / "training.json", manifest)
     return manifest
 
 
@@ -279,6 +324,7 @@ def _run_scene_export(context: PipelineContext) -> dict[str, Any]:
         context.workspace,
         context.state.payload["scene_id"],
         context.config["export"]["schema"],
+        export_root=context.output_root / "export",
     )
     return {
         "scene": "export/scene.json",
@@ -299,7 +345,7 @@ def _run_report(context: PipelineContext) -> dict[str, Any]:
         ),
         "export_validation": export_validation,
     }
-    write_json(context.workspace / "reconstruction-report.json", report)
+    write_json(context.output_root / "reconstruction-report.json", report)
     return export_validation
 
 
@@ -317,6 +363,8 @@ STAGE_EXECUTORS: dict[str, Callable[[PipelineContext], dict[str, Any]]] = {
 def run_pipeline(
     context: PipelineContext, from_stage: str, through_stage: str | None = None
 ) -> None:
+    invalidate_published_outputs(context.workspace, from_stage)
+    cleanup_staging(context.workspace)
     stages = execution_order(from_stage)
     if through_stage is not None:
         if through_stage not in stages:
@@ -325,12 +373,30 @@ def run_pipeline(
             )
         stages = stages[: stages.index(through_stage) + 1]
     for stage_name in stages:
+        staging_root = stage_staging_root(context.workspace, stage_name)
+        stage_context = replace(context, staging_root=staging_root)
         try:
-            context.state.mark_running(stage_name)
-            _remove_owned_outputs(context, stage_name)
-            summary = STAGE_EXECUTORS[stage_name](context)
-            context.state.validate_outputs(stage_name)
+            context.state.mark_running(
+                stage_name, stage_config(context.config, stage_name)
+            )
+            attempt = context.state.payload["stages"][stage_name]["attempts"]
+            log_path = context.workspace / "logs" / stage_name / f"attempt-{attempt}.log"
+            with capture_stage_log(log_path):
+                preflight_stage(
+                    context.workspace,
+                    stage_name,
+                    context.config,
+                    context.repository_root,
+                )
+                summary = STAGE_EXECUTORS[stage_name](stage_context)
+                context.state.validate_outputs(stage_name, staging_root)
+                if stage_name == "scene_export":
+                    validate_scene_export(staging_root / "export")
+                publish_stage(context.workspace, staging_root, stage_name)
+            summary["log"] = str(log_path.relative_to(context.workspace))
         except BaseException as error:
+            remove_path(staging_root)
+            cleanup_staging(context.workspace)
             context.state.mark_failed(stage_name, error)
             raise
         context.state.mark_completed(stage_name, summary)

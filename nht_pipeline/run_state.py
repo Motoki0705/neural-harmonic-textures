@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from .errors import classify_error
 from .stages import STAGE_BY_NAME, STAGES, descendants, execution_order
 
 VALID_STATUSES = {
@@ -36,6 +37,13 @@ class RunState:
         self.payload = payload
 
     @classmethod
+    def _upgrade_payload(cls, payload: dict[str, Any]) -> dict[str, Any]:
+        payload.setdefault("effective_from_stage", payload.get("requested_from_stage"))
+        for record in payload.get("stages", {}).values():
+            record.setdefault("config", None)
+        return payload
+
+    @classmethod
     def create_or_load(
         cls,
         workspace: Path,
@@ -49,7 +57,7 @@ class RunState:
         path = workspace / "run.json"
         payload: dict[str, Any]
         if path.exists():
-            payload = json.loads(path.read_text())
+            payload = cls._upgrade_payload(json.loads(path.read_text()))
             if payload.get("scene_id") != scene_id:
                 raise ValueError(
                     f"Workspace belongs to scene {payload.get('scene_id')!r}, "
@@ -66,6 +74,7 @@ class RunState:
             "input_video": str(input_video.resolve()) if input_video else None,
             "resolved_config": "resolved-config.yaml",
             "requested_from_stage": None,
+            "effective_from_stage": None,
             "requested_through_stage": None,
             "created_at_utc": _now(),
             "updated_at_utc": _now(),
@@ -75,6 +84,7 @@ class RunState:
                     "attempts": 0,
                     "outputs": [str(path) for path in stage.fixed_outputs],
                     "summary": None,
+                    "config": None,
                     "error": None,
                     "started_at_utc": None,
                     "finished_at_utc": None,
@@ -92,13 +102,18 @@ class RunState:
         path = workspace / "run.json"
         if not path.exists():
             raise FileNotFoundError(f"Missing run manifest: {path}")
-        return cls(workspace, json.loads(path.read_text()))
+        return cls(workspace, cls._upgrade_payload(json.loads(path.read_text())))
 
     def save(self) -> None:
         self.payload["updated_at_utc"] = _now()
         _atomic_json(self.path, self.payload)
 
-    def request(self, from_stage: str, through_stage: str | None = None) -> None:
+    def request(
+        self,
+        from_stage: str,
+        through_stage: str | None = None,
+        effective_from_stage: str | None = None,
+    ) -> None:
         if from_stage not in STAGE_BY_NAME:
             raise KeyError(f"Unknown stage: {from_stage}")
         if through_stage is not None and through_stage not in execution_order(
@@ -107,10 +122,18 @@ class RunState:
             raise ValueError(
                 f"through_stage {through_stage} does not follow {from_stage}"
             )
+        effective = effective_from_stage or from_stage
+        if effective not in STAGE_BY_NAME:
+            raise KeyError(f"Unknown effective stage: {effective}")
+        if through_stage is not None and through_stage not in execution_order(effective):
+            raise ValueError(
+                f"through_stage {through_stage} does not follow effective stage {effective}"
+            )
         self.payload["requested_from_stage"] = from_stage
+        self.payload["effective_from_stage"] = effective
         self.payload["requested_through_stage"] = through_stage
         self.payload["status"] = "running"
-        for name in descendants(from_stage, include_self=True):
+        for name in descendants(effective, include_self=True):
             stage = self.payload["stages"][name]
             stage.update(
                 {
@@ -156,18 +179,21 @@ class RunState:
                 f"Stage {stage_name} is missing required inputs: {absent}"
             )
 
-    def validate_outputs(self, stage_name: str) -> None:
+    def validate_outputs(self, stage_name: str, root: Path | None = None) -> None:
+        output_root = root or self.workspace
         absent = [
             str(path)
             for path in STAGE_BY_NAME[stage_name].fixed_outputs
-            if not (self.workspace / path).exists()
+            if not (output_root / path).exists()
         ]
         if absent:
             raise RuntimeError(
                 f"Stage {stage_name} did not produce fixed outputs: {absent}"
             )
 
-    def mark_running(self, stage_name: str) -> None:
+    def mark_running(
+        self, stage_name: str, config_subset: dict[str, Any] | None = None
+    ) -> None:
         self.require_dependencies(stage_name)
         stage = self.payload["stages"][stage_name]
         stage["status"] = "running"
@@ -176,8 +202,27 @@ class RunState:
         stage["finished_at_utc"] = None
         stage["summary"] = None
         stage["error"] = None
+        stage["config"] = config_subset or {}
         self.payload["status"] = "running"
         self.save()
+
+    def recover_interrupted(self) -> list[str]:
+        """Convert crash-left running records into explicit interrupted failures."""
+        recovered: list[str] = []
+        for name, stage in self.payload["stages"].items():
+            if stage["status"] == "running":
+                stage["status"] = "failed"
+                stage["error"] = {
+                    "type": "InterruptedRun",
+                    "message": "Previous process ended while this stage was running",
+                    "category": "process_interrupted",
+                }
+                stage["finished_at_utc"] = _now()
+                recovered.append(name)
+        if recovered:
+            self.payload["status"] = "failed"
+            self.save()
+        return recovered
 
     def mark_completed(self, stage_name: str, summary: dict[str, Any]) -> None:
         stage = self.payload["stages"][stage_name]
@@ -198,6 +243,7 @@ class RunState:
         stage["error"] = {
             "type": type(error).__name__ if isinstance(error, BaseException) else None,
             "message": str(error),
+            "category": classify_error(error),
         }
         stage["finished_at_utc"] = _now()
         self.payload["status"] = "failed"

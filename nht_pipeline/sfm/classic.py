@@ -7,6 +7,34 @@ from pathlib import Path
 from typing import Any
 
 
+def camera_mode_from_config(config: dict[str, Any], pycolmap: Any) -> Any:
+    sharing = config.get("camera_sharing", "single")
+    modes = {
+        "single": pycolmap.CameraMode.SINGLE,
+        "per_folder": pycolmap.CameraMode.PER_FOLDER,
+        "per_image": pycolmap.CameraMode.PER_IMAGE,
+        "segments": pycolmap.CameraMode.PER_IMAGE,
+    }
+    try:
+        return modes[sharing]
+    except KeyError as error:
+        raise ValueError(f"Unsupported camera_sharing: {sharing}") from error
+
+
+def _share_segment_cameras(database_path: Path, segment_size: int, pycolmap: Any) -> None:
+    if segment_size < 2:
+        raise ValueError("segment_size must be at least 2")
+    database = pycolmap.Database(database_path)
+    images = sorted(database.read_all_images(), key=lambda image: image.name)
+    for start in range(0, len(images), segment_size):
+        group = images[start : start + segment_size]
+        shared_camera_id = group[0].camera_id
+        for image in group[1:]:
+            image.camera_id = shared_camera_id
+            database.update_image(image)
+    database.close()
+
+
 def run_sift_incremental(
     image_dir: Path,
     candidate_dir: Path,
@@ -39,11 +67,15 @@ def run_sift_incremental(
     pycolmap.extract_features(
         database_path,
         image_dir,
-        camera_mode=pycolmap.CameraMode.SINGLE,
+        camera_mode=camera_mode_from_config(config, pycolmap),
         reader_options=reader_options,
         extraction_options=extraction_options,
         device=pycolmap.Device.cpu,
     )
+    if config.get("camera_sharing", "single") == "segments":
+        _share_segment_cameras(
+            database_path, int(config.get("camera_segment_size", 30)), pycolmap
+        )
 
     pairing_options = pycolmap.SequentialPairingOptions()
     pairing_options.overlap = int(config.get("sequential_overlap", 10))
@@ -96,4 +128,7 @@ def run_sift_incremental(
         "models_produced": len(reconstructions),
         "selected_registered_images": reconstruction.num_reg_images(),
         "selected_sparse_points": reconstruction.num_points3D(),
+        "camera_sharing": config.get("camera_sharing", "single"),
+        "reconstructed_cameras": reconstruction.num_cameras(),
+        "effective_seed": seed,
     }

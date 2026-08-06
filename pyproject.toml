@@ -21,7 +21,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-test = ["mypy>=1.17", "pytest>=8", "ruff>=0.12"]
+test = ["jsonschema>=4.25", "mypy>=1.17", "pytest>=8", "ruff>=0.12"]
 aov = ["torch>=2.4", "torchvision>=0.19"]
 sfm-learned = [
     "hloc @ git+https://github.com/cvg/Hierarchical-Localization.git",
@@ -29,6 +29,7 @@ sfm-learned = [
 
 [project.scripts]
 nht-reconstruct = "nht_pipeline.__main__:main"
+nht-render = "nht_pipeline.render:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
@@ -43,6 +44,7 @@ line-length = 88
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = ["gpu: requires an external NHT CUDA runtime and real SfM workspace"]
 
 [tool.mypy]
 python_version = "3.11"

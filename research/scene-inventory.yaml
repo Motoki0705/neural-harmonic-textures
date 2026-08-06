@@ -11,6 +11,96 @@ scenes:
       - motion_blur
       - illumination_and_autofocus_change
       - possible_rolling_shutter
+    expected_outcome_before_run: accept
+    venue_group: supplied-outdoor-multi-court
+    device_group: supplied-handheld-camera
+  - id: pexels-sunset-park-5015666
+    source: data/acceptance/sources/pexels-5015666.mp4
+    source_url: https://www.pexels.com/video/drone-footage-of-tennis-courts-5015666/
+    provenance: independent human-shot Pexels capture by Ibrahim Bennett
+    license: Pexels license, free to use
+    status: planned_expected_success
+    expected_outcome_before_run: accept
+    venue_group: sunset-park-multi-court
+    device_group: drone-ibrahim-bennett
+    challenges: [low_light, lens_flare, exposure_change, distant_court]
+  - id: pexels-blue-courts-9105177
+    source: data/acceptance/sources/pexels-9105177.mp4
+    source_url: https://www.pexels.com/video/drone-footage-of-an-empty-tennis-court-9105177/
+    provenance: independent human-shot Pexels capture by Be The Observer
+    license: Pexels license, free to use
+    status: planned_expected_success
+    expected_outcome_before_run: accept
+    venue_group: blue-green-public-courts
+    device_group: drone-be-the-observer
+    challenges: [repetitive_court_texture, low_altitude_translation]
+  - id: pexels-green-match-3858867
+    source: data/acceptance/sources/pexels-3858867.mp4
+    source_url: https://www.pexels.com/video/drone-shot-of-a-tennis-match-3858867/
+    provenance: independent human-shot Pexels capture by K
+    license: Pexels license, free to use
+    status: planned_expected_success
+    expected_outcome_before_run: accept
+    venue_group: green-residential-court
+    device_group: drone-k
+    challenges: [real_players, moving_shadows, top_down_view]
+  - id: pexels-red-multisport-14992855
+    source: data/acceptance/sources/pexels-14992855.mp4
+    source_url: https://www.pexels.com/video/men-playing-tennis-in-drone-footage-14992855/
+    provenance: independent human-shot Pexels capture by Ignacio Pereira
+    license: Pexels license, free to use
+    status: planned_expected_success
+    expected_outcome_before_run: accept
+    venue_group: red-multisport-court
+    device_group: drone-ignacio-pereira
+    challenges: [real_players, mixed_court_markings, top_down_view]
+  - id: pexels-knoxville-17290119
+    source: data/acceptance/sources/pexels-17290119.mp4
+    source_url: https://www.pexels.com/video/drone-tennis-park-17290119/
+    provenance: independent human-shot Pexels capture by Jaxon Matthew Willis
+    license: Pexels license, free to use
+    status: planned_expected_success
+    expected_outcome_before_run: accept
+    venue_group: knoxville-park-court
+    device_group: dji-mini-drone
+    challenges: [real_players, aerial_motion, repetitive_court_texture]
+  - id: pexels-rural-20698836
+    source: data/acceptance/sources/pexels-20698836.mp4
+    source_url: https://www.pexels.com/video/an-aerial-view-of-a-tennis-court-and-green-grass-20698836/
+    provenance: independent human-shot Pexels capture by Eric Skaggs
+    license: Pexels license, free to use
+    status: planned_expected_success
+    expected_outcome_before_run: accept
+    venue_group: ohio-rural-courts
+    device_group: drone-eric-skaggs
+    challenges: [distant_court, aerial_motion, vegetation]
+  - id: pexels-urban-match-14883508
+    source: data/acceptance/sources/pexels-14883508.mp4
+    source_url: https://www.pexels.com/video/an-aerial-view-of-a-tennis-court-and-cars-14883508/
+    provenance: independent human-shot Pexels capture by Kenan Turguç
+    license: Pexels license, free to use
+    status: planned_expected_success
+    expected_outcome_before_run: accept
+    venue_group: urban-blue-court-and-car-park
+    device_group: dji-mavic-pro-2
+    challenges: [real_players, moving_shadows, aerial_translation, dynamic_cars]
+  - id: youtube-nitto-zoom-000003
+    source: data/acceptance/sources/youtube-nitto-zoom-000003.mp4
+    source_url: https://www.youtube.com/watch?v=9aZK0daNm9E
+    provenance: independent 2019 arena capture uploaded by Ibrahim Afsar
+    status: planned_expected_failure
+    expected_outcome_before_run: reject_fail_safe
+    venue_group: nitto-atp-finals-indoor-arena
+    device_group: arena-handheld-zoom-camera
+    challenges: [real_players, spectators, continuous_zoom, autofocus, low_parallax]
+  - id: meiji-fixed-player-cam0
+    source: data/acceptance/sources/meiji-fixed-player-cam0.mp4
+    provenance: independent Meiji three-camera capture, cam0
+    status: planned_expected_failure
+    expected_outcome_before_run: reject_fail_safe
+    venue_group: meiji-outdoor-court
+    device_group: meiji-fixed-wide-camera
+    challenges: [real_players, fixed_camera, zero_parallax, wide_angle_distortion]
   - id: tennis-court-blur-lowlight
     source: derived from supplied capture by scripts/build_sfm_benchmarks.sh
     provenance: deterministic stress transform, not an independent capture
@@ -49,8 +139,11 @@ scenes:
       interpretation: low-parallax rotation over planar repetitive courts
       sift_registered_images: 3
       aliked_registered_images: 3
-gaps:
-  - independent low-parallax capture
-  - real players or spectators
-  - optical zoom or autofocus-induced focal change
-  - different venue, device, weather and illumination
+acceptance_design_frozen_before_runs:
+  minimum_independent_sources: 6
+  minimum_venue_groups: 2
+  minimum_device_groups: 2
+  minimum_end_to_end_successes: 4
+  success_profile: configs/production.yaml; configs/fast-motion-retry.yaml only after overlap-limited rejection
+  comparison_profile: configs/fast-motion-benchmark.yaml with both candidates always enabled
+  failure_rule: no NHT or export may be published after all-candidate rejection

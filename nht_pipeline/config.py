@@ -7,6 +7,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+from .stages import STAGES
+
 DEFAULT_CONFIG: dict[str, Any] = {
     "schema": "nht_pipeline_config_v1",
     "seed": 42,
@@ -37,6 +39,17 @@ DEFAULT_CONFIG: dict[str, Any] = {
             "maximum_near_duplicate_fraction": 0.05,
             "minimum_focal_to_width": 0.1,
             "maximum_focal_to_width": 5.0,
+            "minimum_points_per_supported_camera": 100.0,
+            "minimum_spatial_voxel_coverage_fraction": 0.005,
+            "minimum_median_triangulation_angle_deg": 0.5,
+            "maximum_focal_length_coefficient_of_variation": 0.15,
+        },
+        "short_clip_max_images": 90,
+        "short_clip_quality_gates": {
+            "minimum_sparse_points": 500,
+            "minimum_points_per_supported_camera": 20.0,
+            "minimum_spatial_voxel_coverage_fraction": 0.002,
+            "minimum_median_triangulation_angle_deg": 0.2,
         },
         "candidates": [
             {
@@ -44,6 +57,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
                 "backend": "pycolmap_sift_incremental",
                 "run_condition": "always",
                 "camera_model": "OPENCV",
+                "camera_sharing": "single",
                 "sequential_overlap": 10,
                 "quadratic_overlap": True,
                 "max_features": 4096,
@@ -55,6 +69,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
                 "backend": "hloc_aliked_lightglue",
                 "run_condition": "primary_rejected",
                 "camera_model": "OPENCV",
+                "camera_sharing": "single",
                 "sequential_overlap": 10,
                 "retrieval_neighbors": 10,
                 "max_image_size": 1024,
@@ -64,7 +79,6 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "maximum_candidates": 2,
     },
     "nht_training": {
-        "seed": 42,
         "data_factor": 2,
         "max_steps": 30_000,
         "cap_max": 1_000_000,
@@ -73,10 +87,13 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "python": None,
         "trainer": None,
         "extra_args": [],
-        "seed_argument": None,
+        "cuda_device": 0,
     },
     "export": {
         "schema": "nht_standard_scene_v1",
+    },
+    "operations": {
+        "minimum_free_gb": 5.0,
     },
 }
 
@@ -110,6 +127,14 @@ def load_config(path: Path | None) -> dict[str, Any]:
     if not isinstance(override, dict):
         raise TypeError("Pipeline configuration must contain a mapping")
     config = _merge(DEFAULT_CONFIG, override)
+    legacy_training_seed = config["nht_training"].pop("seed", None)
+    if legacy_training_seed is not None and int(legacy_training_seed) != int(
+        config["seed"]
+    ):
+        raise ValueError(
+            "nht_training.seed is obsolete and must equal the canonical top-level seed"
+        )
+    config["nht_training"].pop("seed_argument", None)
     validate_config(config)
     return config
 
@@ -134,6 +159,31 @@ def validate_config(config: dict[str, Any]) -> None:
             "primary_rejected",
         }:
             raise ValueError(f"Unsupported candidate run_condition: {candidate['id']}")
+        backend = candidate.get("backend")
+        sharing = candidate.get("camera_sharing", "single")
+        supported_sharing = {
+            "pycolmap_sift_incremental": {
+                "single",
+                "per_folder",
+                "per_image",
+                "segments",
+            },
+            "hloc_aliked_lightglue": {"single", "per_image"},
+        }
+        if backend not in supported_sharing:
+            raise ValueError(
+                f"Unsupported SfM backend for candidate {candidate['id']}: {backend}"
+            )
+        if sharing not in supported_sharing[backend]:
+            modes = ", ".join(sorted(supported_sharing[backend]))
+            raise ValueError(
+                f"candidate {candidate['id']} camera_sharing={sharing!r} is invalid "
+                f"for {backend}; choose one of: {modes}"
+            )
+        if sharing == "segments" and int(candidate.get("camera_segment_size", 30)) < 2:
+            raise ValueError(
+                f"candidate {candidate['id']} camera_segment_size must be at least 2"
+            )
     training = config["nht_training"]
     for name in ("data_factor", "max_steps", "cap_max", "test_every"):
         if int(training[name]) < 1:
@@ -146,6 +196,37 @@ def validate_config(config: dict[str, Any]) -> None:
         )
     if config["export"]["schema"] != "nht_standard_scene_v1":
         raise ValueError("export.schema must be nht_standard_scene_v1")
+    if float(config["operations"]["minimum_free_gb"]) < 0:
+        raise ValueError("operations.minimum_free_gb cannot be negative")
+
+
+def earliest_affected_stage(
+    previous: dict[str, Any] | None,
+    current: dict[str, Any],
+) -> str | None:
+    """Return the earliest stage whose owned configuration changed."""
+    if previous is None:
+        return "frames"
+    for stage in STAGES:
+        if any(previous.get(key) != current.get(key) for key in stage.config_sections):
+            return stage.name
+    if previous.get("schema") != current.get("schema"):
+        return "frames"
+    return None
+
+
+def effective_start_stage(
+    requested: str,
+    affected: str | None,
+    *,
+    input_video_changed: bool,
+) -> str:
+    """Expand a request upstream when inputs or resolved configuration changed."""
+    order = [stage.name for stage in STAGES]
+    required = "frames" if input_video_changed else affected
+    if required is None:
+        return requested
+    return order[min(order.index(requested), order.index(required))]
 
 
 def write_resolved_config(path: Path, config: dict[str, Any]) -> None:

@@ -10,6 +10,7 @@ from pathlib import Path
 class StageDefinition:
     name: str
     dependencies: tuple[str, ...]
+    config_sections: tuple[str, ...]
     required_inputs: tuple[Path, ...]
     owned_paths: tuple[Path, ...]
     fixed_outputs: tuple[Path, ...]
@@ -19,6 +20,7 @@ STAGES: tuple[StageDefinition, ...] = (
     StageDefinition(
         "frames",
         (),
+        ("frames",),
         (),
         (Path("frames/raw"), Path("frames/extraction.json")),
         (Path("frames/extraction.json"),),
@@ -26,6 +28,7 @@ STAGES: tuple[StageDefinition, ...] = (
     StageDefinition(
         "preprocess",
         ("frames",),
+        ("preprocess",),
         (Path("frames/raw"), Path("frames/extraction.json")),
         (
             Path("frames/images"),
@@ -37,6 +40,7 @@ STAGES: tuple[StageDefinition, ...] = (
     StageDefinition(
         "sfm",
         ("preprocess",),
+        ("seed", "sfm"),
         (Path("frames/images"), Path("frames/frames.json")),
         (Path("sfm/candidates"),),
         (Path("sfm/candidates/candidates.json"),),
@@ -44,6 +48,7 @@ STAGES: tuple[StageDefinition, ...] = (
     StageDefinition(
         "sfm_selection",
         ("sfm",),
+        (),
         (Path("sfm/candidates/candidates.json"),),
         (
             Path("sfm/model"),
@@ -55,6 +60,7 @@ STAGES: tuple[StageDefinition, ...] = (
     StageDefinition(
         "nht_training",
         ("sfm_selection",),
+        ("seed", "nht_training"),
         (
             Path("frames/images"),
             Path("frames/training-images"),
@@ -72,6 +78,7 @@ STAGES: tuple[StageDefinition, ...] = (
     StageDefinition(
         "scene_export",
         ("nht_training",),
+        ("export",),
         (
             Path("frames/frames.json"),
             Path("sfm/model"),
@@ -91,6 +98,7 @@ STAGES: tuple[StageDefinition, ...] = (
     StageDefinition(
         "reconstruction_report",
         ("scene_export",),
+        (),
         (
             Path("export/scene.json"),
             Path("export/cameras.json"),
@@ -127,3 +135,9 @@ def descendants(name: str, include_self: bool = False) -> tuple[str, ...]:
 
 def execution_order(from_stage: str) -> tuple[str, ...]:
     return descendants(from_stage, include_self=True)
+
+
+def stage_config(config: dict[str, object], stage_name: str) -> dict[str, object]:
+    """Return the exact resolved configuration subset owned by a stage."""
+    stage = STAGE_BY_NAME[stage_name]
+    return {key: config[key] for key in stage.config_sections}

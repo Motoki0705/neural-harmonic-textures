@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/neural-harmonic-textures/render-request.schema.json",
+  "title": "NHT arbitrary camera render request",
+  "type": "object",
+  "required": ["schema", "cameras"],
+  "properties": {
+    "schema": {"const": "nht_render_request_v1"},
+    "cameras": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/camera"}
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "matrix3": {
+      "type": "array", "minItems": 3, "maxItems": 3,
+      "items": {"type": "array", "minItems": 3, "maxItems": 3, "items": {"type": "number"}}
+    },
+    "matrix4": {
+      "type": "array", "minItems": 4, "maxItems": 4,
+      "items": {"type": "array", "minItems": 4, "maxItems": 4, "items": {"type": "number"}}
+    },
+    "camera": {
+      "type": "object",
+      "required": ["camera_id", "width", "height", "intrinsics", "camera_to_scene"],
+      "properties": {
+        "camera_id": {"type": "string", "minLength": 1, "pattern": "^[^/\\\\]+$"},
+        "width": {"type": "integer", "minimum": 1},
+        "height": {"type": "integer", "minimum": 1},
+        "intrinsics": {
+          "type": "object",
+          "required": ["model", "distortion_model", "params", "matrix"],
+          "properties": {
+            "model": {"const": "PINHOLE"},
+            "distortion_model": {"const": "NONE"},
+            "params": {"type": "array", "minItems": 4, "maxItems": 4, "items": {"type": "number"}},
+            "matrix": {"$ref": "#/$defs/matrix3"}
+          },
+          "additionalProperties": false
+        },
+        "camera_to_scene": {"$ref": "#/$defs/matrix4"}
+      },
+      "additionalProperties": false
+    }
+  }
+}

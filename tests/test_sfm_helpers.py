@@ -8,6 +8,7 @@ from nht_pipeline.config import load_config
 from nht_pipeline.pipeline import PipelineContext, _run_sfm_selection
 from nht_pipeline.run_state import RunState
 from nht_pipeline.sfm.compare import similarity_alignment
+from nht_pipeline.sfm.learned import learned_feature_config
 from nht_pipeline.sfm.metrics import trajectory_metrics
 from nht_pipeline.sfm.pairs import sequential_pairs
 from nht_pipeline.sfm.select import NoValidCandidateError, select_candidate
@@ -19,6 +20,13 @@ def test_sequential_pairs_are_unique_and_bounded() -> None:
     assert len(pairs) == 7
     assert ("frame_000.jpg", "frame_002.jpg") in pairs
     assert ("frame_000.jpg", "frame_003.jpg") not in pairs
+
+
+def test_learned_max_image_size_is_applied_without_mutating_base() -> None:
+    base = {"preprocessing": {"resize_max": 1600}, "model": {"name": "aliked"}}
+    configured = learned_feature_config(base, 768)
+    assert configured["preprocessing"]["resize_max"] == 768
+    assert base["preprocessing"]["resize_max"] == 1600
 
 
 def test_similarity_alignment_recovers_transform() -> None:

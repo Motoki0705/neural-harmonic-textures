@@ -1,0 +1,44 @@
+name: Manual NHT GPU round trip
+
+on:
+  workflow_dispatch:
+    inputs:
+      nht_python:
+        description: Absolute NHT virtualenv Python path on the self-hosted runner
+        required: true
+        type: string
+      nht_trainer:
+        description: Absolute simple_trainer_nht.py path on the runner
+        required: true
+        type: string
+      source_workspace:
+        description: Absolute completed SfM workspace path on the runner
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nht-gpu-smoke-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  gpu-round-trip:
+    runs-on: [self-hosted, linux, x64, gpu]
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Real NHT train/export/render round trip
+        env:
+          NHT_GPU_PYTHON: ${{ inputs.nht_python }}
+          NHT_GPU_TRAINER: ${{ inputs.nht_trainer }}
+          NHT_GPU_SOURCE_WORKSPACE: ${{ inputs.source_workspace }}
+          NHT_GPU_REPORT: artifacts/nht-gpu-round-trip.json
+        run: ${{ inputs.nht_python }} -m pytest -q -m gpu tests/test_nht_gpu_integration.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: nht-gpu-round-trip
+          path: artifacts/nht-gpu-round-trip.json
+          if-no-files-found: warn

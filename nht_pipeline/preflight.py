@@ -1,0 +1,151 @@
+"""Stage-aware dependency, device, and capacity diagnostics."""
+
+from __future__ import annotations
+
+import importlib.util
+import json
+import shutil
+import subprocess
+from pathlib import Path
+from typing import Any
+
+from .training import resolve_trainer
+
+
+def _atomic_json(path: Path, payload: dict[str, Any]) -> None:
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    temporary.write_text(json.dumps(payload, indent=2) + "\n")
+    temporary.replace(path)
+
+
+def _store_checks(workspace: Path, stage_name: str, checks: dict[str, Any]) -> None:
+    path = workspace / "preflight.json"
+    payload: dict[str, Any] = (
+        json.loads(path.read_text())
+        if path.exists()
+        else {"schema": "nht_preflight_v1", "stages": {}}
+    )
+    payload["stages"][stage_name] = checks
+    _atomic_json(path, payload)
+
+
+def preflight_stage(
+    workspace: Path,
+    stage_name: str,
+    config: dict[str, Any],
+    repository_root: Path,
+) -> dict[str, Any]:
+    checks: dict[str, Any] = {}
+    free_bytes = shutil.disk_usage(workspace).free
+    required_bytes = int(float(config["operations"]["minimum_free_gb"]) * 1024**3)
+    checks["disk"] = {
+        "free_bytes": free_bytes,
+        "required_bytes": required_bytes,
+        "passed": free_bytes >= required_bytes,
+    }
+    if free_bytes < required_bytes:
+        _store_checks(workspace, stage_name, checks)
+        raise RuntimeError(
+            f"Preflight disk space is below {config['operations']['minimum_free_gb']} GiB"
+        )
+    if stage_name == "frames":
+        ffmpeg = shutil.which("ffmpeg")
+        version = None
+        if ffmpeg is not None:
+            probe = subprocess.run(
+                [ffmpeg, "-version"],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            version = probe.stdout.splitlines()[0] if probe.stdout else None
+        checks["ffmpeg"] = {
+            "path": ffmpeg,
+            "version": version,
+            "passed": ffmpeg is not None,
+        }
+        if ffmpeg is None:
+            _store_checks(workspace, stage_name, checks)
+            raise RuntimeError("Missing dependency: ffmpeg")
+    if stage_name == "sfm":
+        try:
+            import pycolmap
+        except ImportError as error:  # pragma: no cover - dependency environment
+            checks["pycolmap"] = {"available": False, "passed": False}
+            _store_checks(workspace, stage_name, checks)
+            raise RuntimeError("Missing dependency: pycolmap") from error
+        checks["pycolmap"] = {
+            "available": True,
+            "version": getattr(pycolmap, "__version__", None),
+            "passed": True,
+        }
+        learned = any(
+            candidate["backend"] == "hloc_aliked_lightglue"
+            for candidate in config["sfm"]["candidates"]
+        )
+        if learned:
+            hloc_available = importlib.util.find_spec("hloc") is not None
+            checks["optional_learned_candidate"] = {
+                "configured": True,
+                "hloc_available": hloc_available,
+                "passed": hloc_available,
+                "interpretation": (
+                    "primary may still complete; retry records missing_dependency if invoked"
+                ),
+            }
+    if stage_name == "nht_training":
+        training_config = {
+            **config["nht_training"],
+            "seed": int(config["seed"]),
+        }
+        adapter = (
+            Path(training_config["adapter"]).resolve()
+            if training_config.get("adapter")
+            else repository_root / "nht_pipeline/nht_adapter.py"
+        )
+        try:
+            python, trainer = resolve_trainer(training_config, repository_root)
+        except (FileNotFoundError, ValueError) as error:
+            checks["nht_runtime"] = {
+                "passed": False,
+                "error": str(error),
+            }
+            _store_checks(workspace, stage_name, checks)
+            raise
+        probe = subprocess.run(
+            [
+                str(python),
+                str(adapter),
+                "probe",
+                "--trainer",
+                str(trainer),
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        if probe.returncode != 0:
+            checks["nht_runtime"] = {
+                "python": str(python),
+                "trainer": str(trainer),
+                "adapter": str(adapter),
+                "passed": False,
+                "error": probe.stderr.strip(),
+            }
+            _store_checks(workspace, stage_name, checks)
+            raise RuntimeError(
+                "Missing dependency or invalid NHT runtime: " + probe.stderr.strip()
+            )
+        device = json.loads(probe.stdout.strip())
+        checks["nht_runtime"] = {
+            "python": str(python),
+            "trainer": str(trainer),
+            "adapter": str(adapter),
+            **device,
+            "passed": bool(device["cuda_available"] and device["cuda_devices"]),
+        }
+        if not checks["nht_runtime"]["passed"]:
+            _store_checks(workspace, stage_name, checks)
+            raise RuntimeError("NHT preflight found no available CUDA device")
+    _store_checks(workspace, stage_name, checks)
+    return checks

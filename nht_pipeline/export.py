@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import shutil
 from pathlib import Path
 from typing import Any
@@ -27,13 +28,15 @@ def create_scene_export(
     workspace: Path,
     scene_id: str,
     schema: str,
+    *,
+    export_root: Path | None = None,
 ) -> dict[str, Any]:
     try:
         import pycolmap
     except ImportError as error:  # pragma: no cover - runtime dependency
         raise RuntimeError("pycolmap is required for scene export") from error
 
-    export_root = workspace / "export"
+    export_root = export_root or workspace / "export"
     image_root = export_root / "images"
     model_root = export_root / "model"
     image_root.mkdir(parents=True, exist_ok=True)
@@ -44,48 +47,82 @@ def create_scene_export(
     frames_summary = json.loads((workspace / "frames/frames.json").read_text())
     frame_metadata = {record["filename"]: record for record in frames_summary["frames"]}
     reconstruction = pycolmap.Reconstruction(workspace / "sfm/model")
-    source_images = workspace / "frames/images"
+    metadata_path = workspace / "3dgs" / training_summary["scene_metadata"]
+    training_scene = json.loads(metadata_path.read_text())
+    if training_scene.get("schema") != "nht_training_scene_v1":
+        raise ValueError("Unsupported NHT training scene metadata")
+    training_cameras = training_scene["cameras"]
+    source_images = workspace / "3dgs" / training_summary["observed_images"]
 
     cameras = []
-    for fallback, image in enumerate(
-        sorted(reconstruction.images.values(), key=lambda item: item.name)
-    ):
-        source = source_images / image.name
+    raw_images = {image.name: image for image in reconstruction.images.values()}
+    for training_camera in training_cameras:
+        image_name = training_camera["image_name"]
+        image = raw_images.get(image_name)
+        if image is None:
+            raise ValueError(f"Training camera is not registered by SfM: {image_name}")
+        source = source_images / training_camera["observed_image"]
         if not source.is_file():
-            raise FileNotFoundError(f"Registered image is absent: {source}")
-        destination = image_root / image.name
-        destination.hardlink_to(source)
-        camera = reconstruction.cameras[image.camera_id]
-        metadata = frame_metadata.get(image.name)
+            raise FileNotFoundError(f"Observed training image is absent: {source}")
+        destination = image_root / training_camera["observed_image"]
+        try:
+            os.link(source, destination)
+        except OSError:
+            shutil.copy2(source, destination)
+        metadata = frame_metadata.get(image_name)
         if metadata is None or not metadata["accepted"]:
             raise ValueError(
-                f"Registered image has no accepted frame record: {image.name}"
+                f"Registered image has no accepted frame record: {image_name}"
             )
+        intrinsics = np.asarray(training_camera["intrinsics"], dtype=np.float64)
         cameras.append(
             {
-                "camera_id": Path(image.name).stem,
+                "camera_id": Path(image_name).stem,
                 "source_frame_index": int(metadata["source_frame_index"]),
                 "time_seconds": float(metadata["source_time_seconds"]),
-                "image": f"images/{image.name}",
-                "width": int(camera.width),
-                "height": int(camera.height),
+                "split": training_camera["split"],
+                "image": f"images/{training_camera['observed_image']}",
+                "width": int(training_camera["width"]),
+                "height": int(training_camera["height"]),
                 "intrinsics": {
-                    "model": camera.model_name,
-                    "params": [float(value) for value in camera.params],
-                    "matrix": np.asarray(camera.calibration_matrix()).tolist(),
+                    "model": training_camera["projection_model"],
+                    "distortion_model": training_camera["distortion_model"],
+                    "params": [
+                        float(intrinsics[0, 0]),
+                        float(intrinsics[1, 1]),
+                        float(intrinsics[0, 2]),
+                        float(intrinsics[1, 2]),
+                    ],
+                    "matrix": intrinsics.tolist(),
                 },
-                "camera_to_scene": _camera_to_world(image).tolist(),
+                "camera_to_scene": training_camera["camera_to_scene"],
+                "source_image_processing": {
+                    "source_resolution": training_camera["source_resolution"],
+                    "crop_xywh": training_camera["crop_xywh"],
+                    "undistorted": True,
+                    "data_factor": training_scene["data_factor"],
+                },
+                "diagnostics": {
+                    "sfm_camera_id": int(image.camera_id),
+                    "sfm_camera_to_world": _camera_to_world(image).tolist(),
+                },
                 "group": "default",
             }
         )
 
-    points = np.asarray(
+    raw_points = np.asarray(
         [
             [*point.xyz, *(np.asarray(point.color, dtype=np.float64) / 255.0)]
             for point in reconstruction.points3D.values()
         ],
         dtype=np.float32,
     )
+    sfm_to_scene = np.asarray(training_scene["sfm_to_scene"], dtype=np.float64)
+    point_homogeneous = np.column_stack(
+        [raw_points[:, :3].astype(np.float64), np.ones(len(raw_points))]
+    )
+    points = raw_points.copy()
+    points[:, :3] = (sfm_to_scene @ point_homogeneous.T).T[:, :3]
     np.save(export_root / "points_scene.npy", points)
     shutil.copytree(workspace / "3dgs/model", model_root, dirs_exist_ok=True)
     cameras_payload = {
@@ -101,9 +138,15 @@ def create_scene_export(
         "schema": schema,
         "scene_id": scene_id,
         "camera_coordinate_convention": "COLMAP: x-right, y-down, z-forward",
-        "scene_coordinate_convention": "selected COLMAP world coordinates; right-handed",
+        "scene_coordinate_convention": (
+            "NHT parser normalized world coordinates; right-handed; identical to "
+            "checkpoint Gaussian means"
+        ),
         "pixel_coordinate_convention": "origin at top-left; x-right, y-down; pixel centers",
-        "image_resolution_semantics": "width and height are full-resolution source image pixels",
+        "image_resolution_semantics": (
+            "width and height describe the undistorted, cropped training image "
+            "at the configured data factor"
+        ),
         "camera_count": len(cameras),
         "cameras": "cameras.json",
         "point_cloud": {
@@ -115,14 +158,31 @@ def create_scene_export(
         },
         "image_root": "images",
         "model_root": "model",
-        "scene_from_sfm": np.eye(4).tolist(),
-        "normalization": {"applied": False, "transform": np.eye(4).tolist()},
+        "scene_from_sfm": training_scene["sfm_to_scene"],
+        "sfm_from_scene": training_scene["scene_to_sfm"],
+        "normalization": training_scene["normalization"],
+        "renderer": {
+            "command": "nht-render",
+            "model": "model",
+            "runtime_config": "model/runtime-config.json",
+            "checkpoint": (
+                "model/" + str(Path(training_summary["checkpoint"]).relative_to("model"))
+            ),
+            "outputs": {
+                "rgb": "float32 HxWx3 in [0,1] plus PNG preview",
+                "alpha": "float32 HxWx1 in [0,1] plus PNG preview",
+                "depth": "float32 HxWx1 in canonical scene units",
+            },
+        },
         "sfm_summary": reconstruction_summary,
         "nht_training_summary": training_summary,
         "capabilities": [
             "calibrated_cameras",
             "sparse_point_cloud",
             "nht_rendering_model",
+            "rgb_rendering",
+            "alpha_rendering",
+            "depth_rendering",
         ],
     }
     (export_root / "scene.json").write_text(json.dumps(scene, indent=2) + "\n")
@@ -158,12 +218,27 @@ def validate_scene_export(export_root: Path) -> dict[str, Any]:
     ):
         if not isinstance(scene.get(field), str) or not scene[field]:
             raise ValueError(f"Missing scene convention: {field}")
-    for field in ("scene_from_sfm",):
+    for field in ("scene_from_sfm", "sfm_from_scene"):
         transform = np.asarray(scene[field], dtype=np.float64)
         if transform.shape != (4, 4) or not np.isfinite(transform).all():
             raise ValueError(f"Invalid scene transform: {field}")
         if not np.allclose(transform[3], [0, 0, 0, 1], atol=1e-8):
             raise ValueError(f"Non-homogeneous scene transform: {field}")
+    scene_from_sfm = np.asarray(scene["scene_from_sfm"], dtype=np.float64)
+    sfm_from_scene = np.asarray(scene["sfm_from_scene"], dtype=np.float64)
+    if not np.allclose(scene_from_sfm @ sfm_from_scene, np.eye(4), atol=1e-6):
+        raise ValueError("scene_from_sfm and sfm_from_scene are not inverses")
+    normalization = scene.get("normalization")
+    if not isinstance(normalization, dict) or not normalization.get("applied"):
+        raise ValueError("Production NHT export must declare applied normalization")
+    for field in (
+        "camera_similarity",
+        "principal_axis_alignment",
+        "upside_down_correction",
+    ):
+        component = np.asarray(normalization.get(field), dtype=np.float64)
+        if component.shape != (4, 4) or not np.isfinite(component).all():
+            raise ValueError(f"Invalid normalization component: {field}")
     identifiers: set[str] = set()
     image_paths: set[str] = set()
     for camera in cameras:
@@ -185,6 +260,10 @@ def validate_scene_export(export_root: Path) -> dict[str, Any]:
             raise ValueError(f"Invalid intrinsics for {identifier}")
         if intrinsics[0, 0] <= 0 or intrinsics[1, 1] <= 0:
             raise ValueError(f"Non-positive focal length for {identifier}")
+        if camera["intrinsics"].get("model") != "PINHOLE":
+            raise ValueError(f"Consumer camera is not undistorted PINHOLE: {identifier}")
+        if camera["intrinsics"].get("distortion_model") != "NONE":
+            raise ValueError(f"Consumer camera retains distortion: {identifier}")
         parameters = np.asarray(
             camera["intrinsics"].get("params", []), dtype=np.float64
         )
@@ -222,6 +301,13 @@ def validate_scene_export(export_root: Path) -> dict[str, Any]:
         (export_root / scene["model_root"] / "ckpts").glob("*.pt")
     ):
         raise FileNotFoundError("Export NHT model has no checkpoint")
+    renderer = scene.get("renderer")
+    if not isinstance(renderer, dict) or renderer.get("command") != "nht-render":
+        raise ValueError("Scene does not declare the stable nht-render boundary")
+    for field in ("checkpoint", "runtime_config"):
+        path = export_root / renderer[field]
+        if not path.is_file() or not path.resolve().is_relative_to(export_root.resolve()):
+            raise FileNotFoundError(f"Renderer {field} is absent or escapes export")
     return {
         "schema": scene["schema"],
         "camera_count": len(cameras),
@@ -235,6 +321,9 @@ def validate_scene_export(export_root: Path) -> dict[str, Any]:
             "proper_orthonormal_rotations",
             "camera_image_resolution",
             "nht_checkpoint",
+            "canonical_scene_transform_inverse",
+            "effective_undistorted_training_cameras",
+            "stable_render_boundary",
         ],
         "valid": True,
     }

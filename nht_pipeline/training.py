@@ -63,15 +63,41 @@ def run_training(
     output_root: Path,
     config: dict[str, Any],
     repository_root: Path,
+    log_path: Path | None = None,
 ) -> dict[str, Any]:
     python, trainer = resolve_trainer(config, repository_root)
     factor = int(config["data_factor"])
     max_steps = int(config["max_steps"])
     result_dir = output_root / "model"
     result_dir.mkdir(parents=True, exist_ok=True)
+    adapter = (
+        Path(config["adapter"]).resolve()
+        if config.get("adapter")
+        else repository_root / "nht_pipeline/nht_adapter.py"
+    )
+    if not adapter.is_file():
+        raise FileNotFoundError(f"NHT training adapter not found: {adapter}")
+    metadata_path = output_root / "scene-metadata.json"
+    observed_image_root = output_root / "observed-images"
+    seed_path = output_root / "effective-seed.json"
+    runtime_path = result_dir / "runtime-config.json"
     command = [
         str(python),
+        str(adapter),
+        "train",
+        "--trainer",
         str(trainer),
+        "--seed",
+        str(config["seed"]),
+        "--seed-output",
+        str(seed_path),
+        "--metadata-output",
+        str(metadata_path),
+        "--observed-image-root",
+        str(observed_image_root),
+        "--runtime-output",
+        str(runtime_path),
+        "--",
         "default",
         "--data_dir",
         str(dataset_dir),
@@ -81,8 +107,6 @@ def run_training(
         "--result_dir",
         str(result_dir),
     ]
-    if config.get("seed_argument"):
-        command.extend([str(config["seed_argument"]), str(config["seed"])])
     command.extend(
         [
             "--test_every",
@@ -114,9 +138,8 @@ def run_training(
         "finished_at_utc": None,
         "command": command,
         "seed": config["seed"],
-        "seed_control": (
-            "command_argument" if config.get("seed_argument") else "trainer_internal"
-        ),
+        "seed_control": "nht_pipeline_adapter",
+        "effective_seed": None,
         "max_steps": max_steps,
         "cap_max": config["cap_max"],
         "data_factor": factor,
@@ -129,20 +152,64 @@ def run_training(
     manifest_path = output_root / "training.json"
     _write_json(manifest_path, manifest)
     environment = os.environ.copy()
-    environment.setdefault("CUDA_VISIBLE_DEVICES", "0")
+    environment["CUDA_VISIBLE_DEVICES"] = str(config.get("cuda_device", 0))
+    environment["PYTHONHASHSEED"] = str(config["seed"])
     environment.setdefault("OMP_NUM_THREADS", "4")
     environment.setdefault("OPENBLAS_NUM_THREADS", "4")
     started_monotonic = time.monotonic()
-    completed = subprocess.run(
-        command, cwd=trainer.parent, env=environment, check=False
-    )
+    if log_path is not None:
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        log: Any
+        log = log_path.open("w")
+    else:
+        log = None
+    try:
+        completed = subprocess.run(
+            command,
+            cwd=trainer.parent,
+            env=environment,
+            stdout=log,
+            stderr=subprocess.STDOUT if log is not None else None,
+            check=False,
+            text=True,
+        )
+    finally:
+        if log is not None:
+            log.close()
     manifest["elapsed_seconds"] = time.monotonic() - started_monotonic
     manifest["returncode"] = completed.returncode
     manifest["finished_at_utc"] = _now()
     if completed.returncode != 0:
         manifest["status"] = "failed"
         _write_json(manifest_path, manifest)
+        if completed.returncode < 0:
+            raise RuntimeError(
+                f"NHT trainer terminated by signal {-completed.returncode}"
+            )
         raise RuntimeError(f"NHT trainer exited with code {completed.returncode}")
+
+    if not seed_path.is_file():
+        manifest["status"] = "failed"
+        _write_json(manifest_path, manifest)
+        raise RuntimeError("NHT trainer did not report an effective seed")
+    seed_record = json.loads(seed_path.read_text())
+    effective_seed = int(seed_record["effective_seed"])
+    if effective_seed != int(config["seed"]):
+        manifest["status"] = "failed"
+        _write_json(manifest_path, manifest)
+        raise RuntimeError(
+            f"NHT effective seed {effective_seed} differs from requested seed "
+            f"{config['seed']}"
+        )
+    manifest["effective_seed"] = effective_seed
+    if (
+        not metadata_path.is_file()
+        or not observed_image_root.is_dir()
+        or not runtime_path.is_file()
+    ):
+        manifest["status"] = "failed"
+        _write_json(manifest_path, manifest)
+        raise RuntimeError("NHT parser metadata or observed images are missing")
 
     checkpoints = sorted((result_dir / "ckpts").glob("*.pt"))
     if not checkpoints:
@@ -192,6 +259,9 @@ def run_training(
         {
             "status": "completed",
             "checkpoint": str(final_checkpoint.relative_to(output_root)),
+            "scene_metadata": str(metadata_path.relative_to(output_root)),
+            "observed_images": str(observed_image_root.relative_to(output_root)),
+            "runtime_config": str(runtime_path.relative_to(output_root)),
             "validation_metrics": validation_metrics,
             "training_metrics": training_metrics,
         }
