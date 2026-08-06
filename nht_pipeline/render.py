@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import shutil
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -143,6 +144,30 @@ def _render_one(
     )
 
 
+def _validate_replaceable_output(output: Path, scene_id: str) -> None:
+    if not output.exists():
+        return
+    if output.is_symlink() or not output.is_dir():
+        raise ValueError("Render output changed to an unsafe target")
+    if not any(output.iterdir()):
+        return
+    marker = output / "render.json"
+    if marker.is_symlink() or not marker.is_file():
+        raise ValueError(
+            "Non-empty render output has no ordinary NHT render ownership marker"
+        )
+    try:
+        ownership = json.loads(marker.read_text())
+    except (OSError, UnicodeError, json.JSONDecodeError) as error:
+        raise ValueError("Render output ownership marker is invalid") from error
+    if not isinstance(ownership, dict) or ownership.get("schema") != (
+        "nht_render_result_v1"
+    ):
+        raise ValueError("Render output ownership marker has an invalid schema")
+    if ownership.get("scene_id") != scene_id:
+        raise ValueError("Render output ownership marker belongs to another scene")
+
+
 def _safe_output_path(output: Path, validated: ValidatedSceneExport) -> Path:
     if output.is_symlink():
         raise ValueError("Render output cannot be a symbolic link")
@@ -157,6 +182,7 @@ def _safe_output_path(output: Path, validated: ValidatedSceneExport) -> Path:
         raise ValueError("Render output cannot be the scene workspace or its ancestor")
     if resolved.is_relative_to(export_root):
         raise ValueError("Render output cannot be the export root or its descendants")
+    _validate_replaceable_output(resolved, str(validated.scene["scene_id"]))
     return resolved
 
 
@@ -171,12 +197,12 @@ def render_scene(
     scene = validated.scene
     requests = _load_requests(validated.cameras, camera_ids, request_path)
     output = _safe_output_path(output, validated)
-    staging = output.parent / f".{output.name}.staging"
-    if staging.exists():
-        if staging.is_symlink() or not staging.is_dir():
-            raise ValueError("Render staging target is not a safe directory")
-        shutil.rmtree(staging)
-    staging.mkdir(parents=True)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    staging = Path(
+        tempfile.mkdtemp(
+            prefix=f".{output.name}.", suffix=".staging", dir=output.parent
+        )
+    )
     records: list[dict[str, Any]] = []
     try:
         for request in requests:
@@ -242,8 +268,7 @@ def render_scene(
         }
         (staging / "render.json").write_text(json.dumps(manifest, indent=2) + "\n")
         if output.exists():
-            if output.is_symlink() or not output.is_dir():
-                raise ValueError("Render output changed to an unsafe target")
+            _validate_replaceable_output(output, str(scene["scene_id"]))
             shutil.rmtree(output)
         staging.replace(output)
         return manifest

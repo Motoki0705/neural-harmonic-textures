@@ -26,8 +26,9 @@ def test_resolve_trainer_preserves_virtualenv_interpreter_symlink(tmp_path) -> N
 
 
 def test_training_selects_exact_final_checkpoint_and_stores_relative_paths(
-    tmp_path,
+    tmp_path, monkeypatch
 ) -> None:
+    monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "2,5")
     trainer = tmp_path / "fake_trainer.py"
     trainer.write_text("# adapter owns this fake trainer invocation\n")
     adapter = tmp_path / "fake_adapter.py"
@@ -35,6 +36,7 @@ def test_training_selects_exact_final_checkpoint_and_stores_relative_paths(
         """\
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -57,7 +59,10 @@ result_dir = Path(remaining[remaining.index("--result_dir") + 1])
 (result_dir / "stats/train_step29999_rank0.json").write_text(json.dumps({"loss": 0.1}))
 args.seed_output.write_text(json.dumps({"effective_seed": args.seed}))
 args.metadata_output.write_text(json.dumps({"schema": "nht_training_scene_v1"}))
-args.runtime_output.write_text(json.dumps({"schema": "nht_runtime_config_v1"}))
+args.runtime_output.write_text(json.dumps({
+    "schema": "nht_runtime_config_v1",
+    "cuda_visible_devices": os.environ.get("CUDA_VISIBLE_DEVICES"),
+}))
 """
     )
     output_root = tmp_path / "output"
@@ -75,7 +80,7 @@ args.runtime_output.write_text(json.dumps({"schema": "nht_runtime_config_v1"}))
             "test_every": 8,
             "lpips_net": "alex",
             "extra_args": [],
-            "cuda_device": 0,
+            "cuda_device": 1,
             "camera_model": "pinhole",
             "pose_opt": False,
             "post_processing": None,
@@ -88,6 +93,10 @@ args.runtime_output.write_text(json.dumps({"schema": "nht_runtime_config_v1"}))
     assert manifest["checkpoint"] == "model/ckpts/ckpt_29999_rank0.pt"
     assert manifest["validation_metrics"][0]["path"].startswith("model/stats/")
     assert manifest["training_metrics"][0]["path"].startswith("model/stats/")
+    assert manifest["configured_cuda_device"] == 1
+    assert manifest["selected_cuda_token"] == "5"
+    runtime = json.loads((output_root / "model/runtime-config.json").read_text())
+    assert runtime["cuda_visible_devices"] == "5"
     command = manifest["command"]
     assert command[command.index("--near_plane") + 1] == "0.125"
     assert command[command.index("--far_plane") + 1] == "456.0"

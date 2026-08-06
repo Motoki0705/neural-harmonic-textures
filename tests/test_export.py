@@ -189,7 +189,7 @@ def test_render_boundary_rejects_nonfinite_output_without_publication(
     with pytest.raises(RuntimeError, match="invalid rgb"):
         render_scene(tmp_path / "scene.json", output, camera_ids=["frame_000000"])
     assert not output.exists()
-    assert not (output.parent / f".{output.name}.staging").exists()
+    assert not list(output.parent.glob(f".{output.name}.*.staging"))
 
 
 def test_validator_rejects_same_directory_fake_scene(tmp_path) -> None:
@@ -343,3 +343,88 @@ def test_renderer_rejects_ordinary_file_output(tmp_path) -> None:
         render_scene(tmp_path / "scene.json", output, camera_ids=["frame_000000"])
 
     assert output.read_text() == "do not delete"
+
+
+def _fake_successful_render(_checkpoint, _runtime, camera):
+    shape = (camera["height"], camera["width"])
+    return (
+        np.full((*shape, 3), 0.5, dtype=np.float32),
+        np.ones((*shape, 1), dtype=np.float32),
+        np.ones((*shape, 1), dtype=np.float32),
+    )
+
+
+def test_renderer_preserves_unowned_nonempty_output_before_render(
+    tmp_path, monkeypatch
+) -> None:
+    _valid_export(tmp_path)
+    output = tmp_path.parent / f"{tmp_path.name}-unrelated"
+    output.mkdir()
+    sentinel = output / "important.txt"
+    sentinel.write_text("preserve me")
+
+    def unexpected_render(*_args):
+        raise AssertionError("renderer must not run for an unowned output")
+
+    monkeypatch.setattr("nht_pipeline.render._render_one", unexpected_render)
+
+    with pytest.raises(ValueError, match="ownership marker"):
+        render_scene(tmp_path / "scene.json", output, camera_ids=["frame_000000"])
+
+    assert sentinel.read_text() == "preserve me"
+
+
+def test_renderer_preserves_output_owned_by_another_scene(
+    tmp_path, monkeypatch
+) -> None:
+    _valid_export(tmp_path)
+    output = tmp_path.parent / f"{tmp_path.name}-foreign-render"
+    output.mkdir()
+    sentinel = output / "important.txt"
+    sentinel.write_text("preserve me")
+    (output / "render.json").write_text(
+        json.dumps({"schema": "nht_render_result_v1", "scene_id": "B99"})
+    )
+    monkeypatch.setattr("nht_pipeline.render._render_one", _fake_successful_render)
+
+    with pytest.raises(ValueError, match="another scene"):
+        render_scene(tmp_path / "scene.json", output, camera_ids=["frame_000000"])
+
+    assert sentinel.read_text() == "preserve me"
+
+
+@pytest.mark.parametrize("existing", ["empty", "owned"])
+def test_renderer_replaces_only_empty_or_owned_output(
+    tmp_path, monkeypatch, existing
+) -> None:
+    _valid_export(tmp_path)
+    output = tmp_path.parent / f"{tmp_path.name}-{existing}-render"
+    output.mkdir()
+    if existing == "owned":
+        (output / "obsolete.txt").write_text("replace me")
+        (output / "render.json").write_text(
+            json.dumps({"schema": "nht_render_result_v1", "scene_id": "B00"})
+        )
+    monkeypatch.setattr("nht_pipeline.render._render_one", _fake_successful_render)
+
+    render_scene(tmp_path / "scene.json", output, camera_ids=["frame_000000"])
+
+    assert not (output / "obsolete.txt").exists()
+    assert json.loads((output / "render.json").read_text())["scene_id"] == "B00"
+
+
+def test_renderer_does_not_reclaim_fixed_name_staging_directory(
+    tmp_path, monkeypatch
+) -> None:
+    _valid_export(tmp_path)
+    output = tmp_path.parent / f"{tmp_path.name}-render"
+    old_staging = output.parent / f".{output.name}.staging"
+    old_staging.mkdir()
+    sentinel = old_staging / "important.txt"
+    sentinel.write_text("not owned by this process")
+    monkeypatch.setattr("nht_pipeline.render._render_one", _fake_successful_render)
+
+    render_scene(tmp_path / "scene.json", output, camera_ids=["frame_000000"])
+
+    assert sentinel.read_text() == "not owned by this process"
+    assert not list(output.parent.glob(f".{output.name}.*.staging"))

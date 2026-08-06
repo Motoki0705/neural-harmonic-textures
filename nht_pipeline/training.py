@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from .config import NhtTrainingConfig
+from .cuda import select_cuda_environment
 
 
 def _now() -> str:
@@ -73,6 +74,9 @@ def run_training(
         raise TypeError("NHT training seed must be an integer")
     typed_config = NhtTrainingConfig.from_mapping(envelope)
     config = {**typed_config.to_mapping(), "seed": seed}
+    environment, selected_cuda_token = select_cuda_environment(
+        os.environ, config["cuda_device"]
+    )
     python, trainer = resolve_trainer(config, repository_root)
     factor = int(config["data_factor"])
     max_steps = int(config["max_steps"])
@@ -157,6 +161,8 @@ def run_training(
         "max_steps": max_steps,
         "cap_max": config["cap_max"],
         "data_factor": factor,
+        "configured_cuda_device": config["cuda_device"],
+        "selected_cuda_token": selected_cuda_token,
         "checkpoint": None,
         "validation_metrics": [],
         "returncode": None,
@@ -165,8 +171,6 @@ def run_training(
     }
     manifest_path = output_root / "training.json"
     _write_json(manifest_path, manifest)
-    environment = os.environ.copy()
-    environment["CUDA_VISIBLE_DEVICES"] = str(config["cuda_device"])
     environment["PYTHONHASHSEED"] = str(config["seed"])
     environment.setdefault("OMP_NUM_THREADS", "4")
     environment.setdefault("OPENBLAS_NUM_THREADS", "4")

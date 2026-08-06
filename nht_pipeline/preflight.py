@@ -10,6 +10,7 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+from .cuda import select_cuda_environment
 from .training import resolve_trainer
 
 
@@ -113,6 +114,7 @@ def preflight_stage(
             }
             _store_checks(workspace, stage_name, checks)
             raise
+        inherited_environment = os.environ.copy()
         probe = subprocess.run(
             [
                 str(python),
@@ -124,6 +126,7 @@ def preflight_stage(
             check=False,
             capture_output=True,
             text=True,
+            env=inherited_environment,
         )
         if probe.returncode != 0:
             checks["nht_runtime"] = {
@@ -155,8 +158,25 @@ def preflight_stage(
             }
             _store_checks(workspace, stage_name, checks)
             raise RuntimeError(checks["nht_runtime"]["error"])
-        selection_environment = os.environ.copy()
-        selection_environment["CUDA_VISIBLE_DEVICES"] = str(configured_device)
+        try:
+            selection_environment, selected_cuda_token = select_cuda_environment(
+                inherited_environment, configured_device
+            )
+        except ValueError as error:
+            checks["nht_runtime"] = {
+                "python": str(python),
+                "trainer": str(trainer),
+                "adapter": str(adapter),
+                **device,
+                "configured_cuda_device": configured_device,
+                "inherited_cuda_visible_devices": inherited_environment.get(
+                    "CUDA_VISIBLE_DEVICES"
+                ),
+                "passed": False,
+                "error": str(error),
+            }
+            _store_checks(workspace, stage_name, checks)
+            raise RuntimeError(str(error)) from error
         selected_probe = subprocess.run(
             [
                 str(python),
@@ -186,6 +206,10 @@ def preflight_stage(
             "adapter": str(adapter),
             **device,
             "configured_cuda_device": configured_device,
+            "inherited_cuda_visible_devices": inherited_environment.get(
+                "CUDA_VISIBLE_DEVICES"
+            ),
+            "selected_cuda_token": selected_cuda_token,
             "selected_device_probe": selected_device,
             "passed": selected,
         }

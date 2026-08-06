@@ -151,6 +151,13 @@ nht-render --scene WORKSPACE/export/scene.json \
 `nht_render_result_v1`の`render.json`です。request/result schemaは
 [`schemas/render-request.schema.json`](schemas/render-request.schema.json) と
 [`schemas/render-result.schema.json`](schemas/render-result.schema.json) に固定しています。
+既存の非空outputを置換できるのは、同じscene IDの有効な`render.json`を持つNHT
+render成果物だけです。空directoryは置換できますが、markerのない非空directoryや
+別sceneの成果物は内容を保持したまま拒否します。stagingは実行ごとに一意です。
+
+`nht_training.cuda_device`は、親processに`CUDA_VISIBLE_DEVICES`がある場合はその
+token列内のlogical indexです。例えばmaskが`2,5`で`cuda_device: 1`なら、子process
+にはtoken `5`だけを渡します。maskがないbare hostではCUDA ordinalとして扱います。
 
 選定根拠と実測値は [SfM research](docs/sfm-research.md)、契約は
 [Pipeline contracts](docs/contracts.md)、破壊的移行内容は

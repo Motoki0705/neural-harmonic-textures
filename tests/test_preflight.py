@@ -17,32 +17,51 @@ def _runtime(tmp_path):
     return python, trainer
 
 
-def test_nht_preflight_selects_the_configured_cuda_index(tmp_path, monkeypatch) -> None:
+@pytest.mark.parametrize(
+    "inherited_mask,configured_device,selected_token",
+    [(None, 1, "1"), ("3", 0, "3"), ("2,5", 1, "5")],
+)
+def test_nht_preflight_selects_the_configured_logical_cuda_index(
+    tmp_path, monkeypatch, inherited_mask, configured_device, selected_token
+) -> None:
     config = load_config(None)
     config["operations"]["minimum_free_gb"] = 0
-    config["nht_training"]["cuda_device"] = 1
+    config["nht_training"]["cuda_device"] = configured_device
+    if inherited_mask is None:
+        monkeypatch.delenv("CUDA_VISIBLE_DEVICES", raising=False)
+    else:
+        monkeypatch.setenv("CUDA_VISIBLE_DEVICES", inherited_mask)
     python, trainer = _runtime(tmp_path)
     monkeypatch.setattr(
         "nht_pipeline.preflight.resolve_trainer", lambda *_args: (python, trainer)
     )
     environments = []
+    initial_device_count = (
+        len(inherited_mask.split(",")) if inherited_mask is not None else 2
+    )
 
     def fake_run(_command, **kwargs):
         environment = kwargs.get("env")
-        environments.append(environment)
         payload = (
-            {"cuda_available": True, "cuda_devices": 2, "cuda_device_names": ["a", "b"]}
-            if environment is None
+            {
+                "cuda_available": True,
+                "cuda_devices": initial_device_count,
+                "cuda_device_names": ["visible"] * initial_device_count,
+            }
+            if not environments
             else {"cuda_available": True, "cuda_devices": 1, "cuda_device_names": ["b"]}
         )
+        environments.append(environment)
         return SimpleNamespace(returncode=0, stdout=json.dumps(payload), stderr="")
 
     monkeypatch.setattr("nht_pipeline.preflight.subprocess.run", fake_run)
 
     checks = preflight_stage(tmp_path, "nht_training", config, tmp_path)
 
-    assert environments[1]["CUDA_VISIBLE_DEVICES"] == "1"
-    assert checks["nht_runtime"]["configured_cuda_device"] == 1
+    assert environments[0].get("CUDA_VISIBLE_DEVICES") == inherited_mask
+    assert environments[1]["CUDA_VISIBLE_DEVICES"] == selected_token
+    assert checks["nht_runtime"]["configured_cuda_device"] == configured_device
+    assert checks["nht_runtime"]["selected_cuda_token"] == selected_token
     assert checks["nht_runtime"]["passed"] is True
 
 
