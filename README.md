@@ -114,6 +114,11 @@ graph を1回実行します。全候補が不合格なら selection で失敗�
 選びます。このprofileは5 fps、overlap 15へ増やし、同じcamera modelとquality
 gateを維持します。両candidate比較用は
 [`configs/fast-motion-benchmark.yaml`](configs/fast-motion-benchmark.yaml) です。
+固定、区間共有、画像別intrinsicsの研究比較は
+[`configs/camera-policy-benchmark.yaml`](configs/camera-policy-benchmark.yaml) で
+明示的に実行します。これらの自由度はproductionの暗黙fallbackではありません。
+合格した各candidateを同じ短縮NHT recipeへ接続する場合は
+`scripts/run_candidate_nht_benchmark.py`を使用します。
 
 ## Standard renderer
 
@@ -143,7 +148,7 @@ nht-render --scene WORKSPACE/export/scene.json \
 
 ```bash
 uv run --extra test pytest -q
-uv run --extra test ruff check nht_pipeline tests
+uv run --extra test ruff check nht_pipeline tests scripts
 uv run --extra test mypy nht_pipeline
 uvx check-jsonschema --check-metaschema schemas/*.schema.json
 uv build
@@ -155,6 +160,8 @@ scene semantic validation を外部 GPU なしで検証します。実動画 int
 結果は [2026-08-05 tennis-court experiment](research/experiments/2026-08-05-tennis-court.md)
 に、派生 stress test は
 [2026-08-06 SfM stress benchmark](research/experiments/2026-08-06-sfm-stress.md)
+および
+[independent-scene acceptance](research/experiments/2026-08-06-independent-scenes.md)
 に記録しています。
 
 実NHT/CUDA round-tripはmanual GPU workflowまたは次の固定commandで再実行します。

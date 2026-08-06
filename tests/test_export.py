@@ -19,6 +19,7 @@ def _valid_export(tmp_path):
     np.save(tmp_path / "points_scene.npy", points)
     cameras = {
         "schema": "nht_standard_cameras_v1",
+        "camera_coordinate_convention": "x-right, y-down, z-forward",
         "cameras": [
             {
                 "camera_id": "frame_000000",
@@ -93,6 +94,15 @@ def test_export_validator_rejects_improper_rotation(tmp_path) -> None:
         assert "Improper camera rotation" in str(error)
     else:
         raise AssertionError("Expected an improper-rotation validation error")
+
+
+def test_export_validator_rejects_disagreeing_camera_convention(tmp_path) -> None:
+    cameras = _valid_export(tmp_path)
+    cameras["camera_coordinate_convention"] = "different camera frame"
+    (tmp_path / "cameras.json").write_text(json.dumps(cameras))
+
+    with pytest.raises(ValueError, match="coordinate conventions disagree"):
+        validate_scene_export(tmp_path)
 
 
 def test_render_boundary_publishes_observed_and_arbitrary_rgb_alpha_depth(

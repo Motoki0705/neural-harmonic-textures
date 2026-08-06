@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shutil
 import time
 from pathlib import Path
 from typing import Any
@@ -13,7 +14,7 @@ def camera_mode_from_config(config: dict[str, Any], pycolmap: Any) -> Any:
         "single": pycolmap.CameraMode.SINGLE,
         "per_folder": pycolmap.CameraMode.PER_FOLDER,
         "per_image": pycolmap.CameraMode.PER_IMAGE,
-        "segments": pycolmap.CameraMode.PER_IMAGE,
+        "segments": pycolmap.CameraMode.PER_FOLDER,
     }
     try:
         return modes[sharing]
@@ -21,18 +22,25 @@ def camera_mode_from_config(config: dict[str, Any], pycolmap: Any) -> Any:
         raise ValueError(f"Unsupported camera_sharing: {sharing}") from error
 
 
-def _share_segment_cameras(database_path: Path, segment_size: int, pycolmap: Any) -> None:
+def _segment_image_root(
+    image_dir: Path, candidate_dir: Path, segment_size: int
+) -> Path:
     if segment_size < 2:
         raise ValueError("segment_size must be at least 2")
-    database = pycolmap.Database(database_path)
-    images = sorted(database.read_all_images(), key=lambda image: image.name)
-    for start in range(0, len(images), segment_size):
-        group = images[start : start + segment_size]
-        shared_camera_id = group[0].camera_id
-        for image in group[1:]:
-            image.camera_id = shared_camera_id
-            database.update_image(image)
-    database.close()
+    images = sorted(path for path in image_dir.iterdir() if path.is_file())
+    segmented = candidate_dir / "segmented-images"
+    for index, image in enumerate(images):
+        group = segmented / f"segment-{index // segment_size:04d}"
+        group.mkdir(parents=True, exist_ok=True)
+        destination = group / image.name
+        try:
+            destination.symlink_to(image.resolve())
+        except OSError:
+            try:
+                destination.hardlink_to(image)
+            except OSError:
+                shutil.copy2(image, destination)
+    return segmented
 
 
 def run_sift_incremental(
@@ -51,6 +59,13 @@ def run_sift_incremental(
     sparse_root = candidate_dir / "models"
     candidate_dir.mkdir(parents=True, exist_ok=True)
     sparse_root.mkdir(parents=True, exist_ok=True)
+    extraction_image_dir = image_dir
+    if config.get("camera_sharing", "single") == "segments":
+        extraction_image_dir = _segment_image_root(
+            image_dir,
+            candidate_dir,
+            int(config.get("camera_segment_size", 30)),
+        )
 
     reader_options = pycolmap.ImageReaderOptions()
     reader_options.camera_model = config.get("camera_model", "OPENCV")
@@ -66,17 +81,12 @@ def run_sift_incremental(
     extraction_options.sift = sift_extraction
     pycolmap.extract_features(
         database_path,
-        image_dir,
+        extraction_image_dir,
         camera_mode=camera_mode_from_config(config, pycolmap),
         reader_options=reader_options,
         extraction_options=extraction_options,
         device=pycolmap.Device.cpu,
     )
-    if config.get("camera_sharing", "single") == "segments":
-        _share_segment_cameras(
-            database_path, int(config.get("camera_segment_size", 30)), pycolmap
-        )
-
     pairing_options = pycolmap.SequentialPairingOptions()
     pairing_options.overlap = int(config.get("sequential_overlap", 10))
     pairing_options.quadratic_overlap = bool(config.get("quadratic_overlap", True))
@@ -109,7 +119,7 @@ def run_sift_incremental(
     mapping_options.mapper.num_threads = int(config.get("num_threads", 4))
     reconstructions = pycolmap.incremental_mapping(
         database_path,
-        image_dir,
+        extraction_image_dir,
         sparse_root,
         options=mapping_options,
     )
@@ -119,9 +129,14 @@ def run_sift_incremental(
         reconstructions.values(),
         key=lambda item: (item.num_reg_images(), item.num_points3D()),
     )
+    if config.get("camera_sharing", "single") == "segments":
+        for image in reconstruction.images.values():
+            image.name = Path(image.name).name
     model_dir = candidate_dir / "model"
     model_dir.mkdir(parents=True, exist_ok=True)
     reconstruction.write(model_dir)
+    if extraction_image_dir != image_dir:
+        shutil.rmtree(extraction_image_dir)
     return reconstruction, {
         "backend": "pycolmap_sift_incremental",
         "elapsed_seconds": time.monotonic() - started,

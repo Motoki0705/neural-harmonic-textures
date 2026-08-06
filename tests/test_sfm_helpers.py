@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import numpy as np
 
 from nht_pipeline.config import load_config
 from nht_pipeline.pipeline import PipelineContext, _run_sfm_selection
 from nht_pipeline.run_state import RunState
+from nht_pipeline.sfm.classic import _segment_image_root
 from nht_pipeline.sfm.compare import similarity_alignment
 from nht_pipeline.sfm.learned import learned_feature_config
 from nht_pipeline.sfm.metrics import trajectory_metrics
@@ -27,6 +29,26 @@ def test_learned_max_image_size_is_applied_without_mutating_base() -> None:
     configured = learned_feature_config(base, 768)
     assert configured["preprocessing"]["resize_max"] == 768
     assert base["preprocessing"]["resize_max"] == 1600
+
+
+def test_segment_camera_image_root_groups_contiguous_frames(tmp_path: Path) -> None:
+    images = tmp_path / "images"
+    images.mkdir()
+    for index in range(5):
+        (images / f"frame_{index:02d}.png").write_bytes(b"image")
+
+    segmented = _segment_image_root(images, tmp_path / "candidate", 2)
+
+    assert [
+        path.relative_to(segmented).as_posix()
+        for path in sorted(segmented.glob("*/*"))
+    ] == [
+        "segment-0000/frame_00.png",
+        "segment-0000/frame_01.png",
+        "segment-0001/frame_02.png",
+        "segment-0001/frame_03.png",
+        "segment-0002/frame_04.png",
+    ]
 
 
 def test_similarity_alignment_recovers_transform() -> None:

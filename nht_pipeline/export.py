@@ -12,6 +12,8 @@ from typing import Any
 import numpy as np
 from PIL import Image
 
+CAMERA_COORDINATE_CONVENTION = "x-right, y-down, z-forward"
+
 
 def _frame_index(name: str, fallback: int) -> int:
     suffix = Path(name).stem.rsplit("_", 1)[-1]
@@ -127,7 +129,7 @@ def create_scene_export(
     shutil.copytree(workspace / "3dgs/model", model_root, dirs_exist_ok=True)
     cameras_payload = {
         "schema": "nht_standard_cameras_v1",
-        "camera_coordinate_convention": "x-right, y-down, z-forward",
+        "camera_coordinate_convention": CAMERA_COORDINATE_CONVENTION,
         "transform_semantics": "camera_to_scene maps homogeneous camera coordinates to scene coordinates",
         "cameras": cameras,
     }
@@ -137,7 +139,7 @@ def create_scene_export(
     scene = {
         "schema": schema,
         "scene_id": scene_id,
-        "camera_coordinate_convention": "COLMAP: x-right, y-down, z-forward",
+        "camera_coordinate_convention": CAMERA_COORDINATE_CONVENTION,
         "scene_coordinate_convention": (
             "NHT parser normalized world coordinates; right-handed; identical to "
             "checkpoint Gaussian means"
@@ -194,6 +196,11 @@ def validate_scene_export(export_root: Path) -> dict[str, Any]:
     scene = json.loads((export_root / "scene.json").read_text())
     cameras_payload = json.loads((export_root / scene["cameras"]).read_text())
     cameras = cameras_payload["cameras"]
+    if (
+        cameras_payload.get("camera_coordinate_convention")
+        != scene.get("camera_coordinate_convention")
+    ):
+        raise ValueError("Scene and camera coordinate conventions disagree")
     if scene["camera_count"] != len(cameras) or not cameras:
         raise ValueError("camera_count does not match a non-empty camera list")
     points = np.load(export_root / scene["point_cloud"]["path"], allow_pickle=False)

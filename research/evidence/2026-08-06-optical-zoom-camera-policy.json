@@ -1,0 +1,41 @@
+{
+  "schema": "nht_camera_policy_benchmark_v1",
+  "scene_id": "youtube-nitto-zoom-000003",
+  "input_images": 60,
+  "candidates": {
+    "single_camera": {
+      "registered_images": 5,
+      "supported_registered_images": 5,
+      "sparse_points": 140,
+      "camera_count": 1,
+      "focal_length_coefficient_of_variation": 0.0,
+      "maximum_step_to_median": 56.427507741298946,
+      "runtime_seconds": 118.03198259486817,
+      "accepted": false
+    },
+    "segment_shared_camera_10_frames": {
+      "registered_images": 3,
+      "supported_registered_images": 3,
+      "sparse_points": 58,
+      "camera_count": 2,
+      "focal_length_coefficient_of_variation": 0.0025904193064903197,
+      "p95_adjacent_relative_focal_change": 0.005220353714547197,
+      "maximum_step_to_median": 1.9243209164099768,
+      "runtime_seconds": 89.58535264409147,
+      "accepted": false
+    },
+    "per_image_camera": {
+      "registered_images": 6,
+      "supported_registered_images": 6,
+      "sparse_points": 125,
+      "camera_count": 6,
+      "focal_length_coefficient_of_variation": 0.1419043390983263,
+      "p95_adjacent_relative_focal_change": 0.37162418820011855,
+      "maximum_step_to_median": 23.987158135461915,
+      "near_duplicate_fraction": 0.2,
+      "runtime_seconds": 112.23789317696355,
+      "accepted": false
+    }
+  },
+  "decision": "reject scene; keep single shared camera for nominal production, and never use extra intrinsics freedom as an implicit retry"
+}

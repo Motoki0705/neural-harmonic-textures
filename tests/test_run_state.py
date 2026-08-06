@@ -160,6 +160,9 @@ def test_stage_publishes_only_after_staged_output_validation(
         assert not (tmp_path / "frames/extraction.json").exists()
         return {"frame_count": 1}
 
+    monkeypatch.setattr(
+        "nht_pipeline.pipeline.preflight_stage", lambda *_args, **_kwargs: {}
+    )
     monkeypatch.setitem(STAGE_EXECUTORS, "frames", fake_frames)
     run_pipeline(context, "frames", "frames")
 
@@ -187,6 +190,9 @@ def test_failed_stage_discards_temporary_output(tmp_path, monkeypatch) -> None:
         output.write_text("partial")
         raise RuntimeError("synthetic process signal")
 
+    monkeypatch.setattr(
+        "nht_pipeline.pipeline.preflight_stage", lambda *_args, **_kwargs: {}
+    )
     monkeypatch.setitem(STAGE_EXECUTORS, "frames", failing_frames)
     with pytest.raises(RuntimeError, match="synthetic process signal"):
         run_pipeline(context, "frames", "frames")
