@@ -7,6 +7,11 @@ import numpy as np
 import pytest
 from PIL import Image
 
+from nht_pipeline.composed_render import (
+    _joint_eval3d_channel_layout,
+    _pad_joint_eval3d_channels,
+    _split_joint_eval3d_output,
+)
 from nht_pipeline.export import validate_scene_export
 from nht_pipeline.render import render_scene
 from nht_pipeline.schema import schema_validator, validate_schema_payload
@@ -548,3 +553,202 @@ def test_schema_contract_runtime_rejects_the_same_structural_payloads(
     assert not schema_validator(boundary).is_valid(payload)
     with pytest.raises(ValueError, match="canonical.*schema"):
         runtime_call()
+
+
+class _FakeComposedRenderer:
+    cuda_peak_bytes = 4096
+
+    def render_background(self, request):
+        shape = (int(request["height"]), int(request["width"]))
+        return (
+            np.full((*shape, 3), 0.1, dtype=np.float32),
+            np.ones((*shape, 1), dtype=np.float32),
+            np.full((*shape, 1), 10.0, dtype=np.float32),
+        )
+
+    def render_frame(self, request, frame_index):
+        rgb, alpha, depth = self.render_background(request)
+        labels = np.zeros(rgb.shape[:2], dtype=np.int32)
+        if frame_index == 0:
+            labels[2, 3] = 1
+            rgb[2, 3] = (0.72, 0.92, 0.08)
+            alpha[2, 3, 0] = 0.97
+            depth[2, 3, 0] = 2.0
+        return rgb, alpha, depth, labels
+
+
+class _FakeChannelTensor:
+    def __init__(self, values):
+        self.values = np.asarray(values)
+        self.shape = self.values.shape
+        self.dtype = self.values.dtype
+        self.device = "cpu"
+
+
+class _FakeChannelTorch:
+    @staticmethod
+    def zeros(*shape, dtype, device):
+        assert device == "cpu"
+        return _FakeChannelTensor(np.zeros(shape, dtype=dtype))
+
+    @staticmethod
+    def cat(values, dim):
+        return _FakeChannelTensor(
+            np.concatenate([value.values for value in values], axis=dim)
+        )
+
+
+def test_joint_eval3d_channel_layout_pads_eight_objects_and_preserves_one() -> None:
+    single = _joint_eval3d_channel_layout(1)
+    assert single.logical_input_channels == 4
+    assert single.physical_input_channels == 4
+    assert single.physical_total_channels == 5
+    single_channels = _FakeChannelTensor(np.ones((2, 4), dtype=np.float32))
+    assert (
+        _pad_joint_eval3d_channels(
+            _FakeChannelTorch,
+            single_channels,
+            layout=single,
+        )
+        is single_channels
+    )
+
+    multi = _joint_eval3d_channel_layout(8)
+    assert multi.logical_input_channels == 11
+    assert multi.physical_input_channels == 15
+    assert multi.physical_total_channels == 16
+    logical = _FakeChannelTensor(
+        np.arange(22, dtype=np.float32).reshape(2, 11)
+    )
+    padded = _pad_joint_eval3d_channels(
+        _FakeChannelTorch,
+        logical,
+        layout=multi,
+    )
+    assert padded.shape == (2, 15)
+    np.testing.assert_array_equal(padded.values[:, :11], logical.values)
+    np.testing.assert_array_equal(padded.values[:, 11:], 0.0)
+
+    physical_output = np.arange(16, dtype=np.float32).reshape(1, 16)
+    direct_rgb, semantics, depth = _split_joint_eval3d_output(
+        physical_output,
+        object_count=8,
+        layout=multi,
+    )
+    np.testing.assert_array_equal(direct_rgb, [[0.0, 1.0, 2.0]])
+    np.testing.assert_array_equal(
+        semantics,
+        [np.arange(3, 11, dtype=np.float32)],
+    )
+    np.testing.assert_array_equal(depth, [[15.0]])
+
+
+def test_joint_eval3d_channel_layout_fails_above_compiled_limit() -> None:
+    maximum = _joint_eval3d_channel_layout(509)
+    assert maximum.physical_total_channels == 513
+    with pytest.raises(ValueError, match="compiled CUDA channel limit"):
+        _joint_eval3d_channel_layout(510)
+
+
+def _composition_request(root: Path, *, asset_dtype=np.float32) -> Path:
+    root.mkdir()
+    np.savez(
+        root / "asset.npz",
+        means_m=np.asarray([[0.0, 0.0, 0.0335]], dtype=asset_dtype),
+        quats_wxyz=np.asarray([[1.0, 0.0, 0.0, 0.0]], dtype=asset_dtype),
+        log_scales_m=np.log(
+            np.asarray([[0.0048, 0.0048, 0.0018]], dtype=asset_dtype)
+        ),
+        opacity_logits=np.asarray([2.75], dtype=asset_dtype),
+        colors_linear_rgb=np.asarray([[0.72, 0.92, 0.08]], dtype=asset_dtype),
+    )
+    transforms = np.repeat(np.eye(4, dtype=np.float64)[None, None], 2, axis=0)
+    np.savez(
+        root / "timeline.npz",
+        transforms_nht_from_asset=transforms,
+        present=np.asarray([[True], [False]], dtype=np.bool_),
+        instance_ids=np.asarray([1], dtype=np.int32),
+    )
+    request = {
+        "schema": "nht_composed_render_request_v1",
+        "asset": {
+            "asset_id": "regulation-tennis-ball",
+            "coordinate_space": "right_handed_asset_local_metres",
+            "appearance_model": "direct_linear_rgb",
+            "gaussian_count": 1,
+            "tensors": "asset.npz",
+        },
+        "timeline": {
+            "coordinate_space": "canonical NHT scene space",
+            "frame_count": 2,
+            "object_count": 1,
+            "object_ids": ["ball-001"],
+            "instance_ids": [1],
+            "tensors": "timeline.npz",
+            "chunks": [{"chunk_index": 0, "frame_indices": [0, 1]}],
+        },
+        "visibility_threshold": 0.0001,
+    }
+    path = root / "composition.json"
+    path.write_text(json.dumps(request))
+    return path
+
+
+def test_composed_render_boundary_publishes_joint_sparse_frames(
+    tmp_path, monkeypatch
+) -> None:
+    _valid_export(tmp_path)
+    composition = _composition_request(
+        tmp_path.parent / f"{tmp_path.name}-composition"
+    )
+    output = tmp_path.parent / f"{tmp_path.name}-composed-render"
+
+    def fake_build(_checkpoint, _runtime, loaded, _requests):
+        assert loaded.frame_count == 2
+        assert loaded.object_count == 1
+        assert loaded.asset.gaussian_count == 1
+        return _FakeComposedRenderer()
+
+    monkeypatch.setattr("nht_pipeline.composed_render._build_renderer", fake_build)
+    result = render_scene(
+        tmp_path / "scene.json",
+        output,
+        camera_ids=["frame_000000"],
+        composition_path=composition,
+    )
+
+    assert schema_validator("composed-render-result").is_valid(result)
+    validate_schema_payload(
+        "composed-render-result", result, context="generated composed result"
+    )
+    assert result["composition"]["frame_count"] == 2
+    assert result["chunks"][0]["sample_count"] == 2
+    with np.load(output / result["chunks"][0]["arrays"], allow_pickle=False) as arrays:
+        np.testing.assert_array_equal(arrays["frame_indices"], [0, 1])
+        np.testing.assert_array_equal(arrays["offsets"], [0, 1, 1])
+        np.testing.assert_array_equal(arrays["pixel_indices"], [2 * 16 + 3])
+        np.testing.assert_array_equal(arrays["instance_ids"], [1])
+        np.testing.assert_allclose(arrays["depth"], [2.0])
+    assert (output / "background/frame_000000/depth.npy").is_file()
+
+
+def test_composed_render_boundary_rejects_non_float32_asset(
+    tmp_path, monkeypatch
+) -> None:
+    _valid_export(tmp_path)
+    composition = _composition_request(
+        tmp_path.parent / f"{tmp_path.name}-float64-composition",
+        asset_dtype=np.float64,
+    )
+
+    monkeypatch.setattr(
+        "nht_pipeline.composed_render._build_renderer",
+        lambda *_args: pytest.fail("invalid asset reached the renderer"),
+    )
+    with pytest.raises(ValueError, match="must be float32"):
+        render_scene(
+            tmp_path / "scene.json",
+            tmp_path.parent / f"{tmp_path.name}-float64-composed-render",
+            camera_ids=["frame_000000"],
+            composition_path=composition,
+        )

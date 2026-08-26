@@ -17,7 +17,7 @@ from .export import (
     load_validated_scene_export,
     validate_pinhole_camera,
 )
-from .schema import validate_schema_payload
+from .schema import SchemaName, validate_schema_payload
 
 
 def _safe_identifier(value: str) -> str:
@@ -158,9 +158,15 @@ def _validate_replaceable_output(output: Path, scene_id: str) -> None:
         ownership = json.loads(marker.read_text())
     except (OSError, UnicodeError, json.JSONDecodeError) as error:
         raise ValueError("Render output ownership marker is invalid") from error
-    validate_schema_payload(
-        "render-result", ownership, context="Render output ownership marker"
-    )
+    schema = ownership.get("schema")
+    schema_name: SchemaName
+    if schema == "nht_render_result_v1":
+        schema_name = "render-result"
+    elif schema == "nht_composed_render_result_v1":
+        schema_name = "composed-render-result"
+    else:
+        raise ValueError("Render output ownership marker has an unknown schema")
+    validate_schema_payload(schema_name, ownership, context="Render output ownership marker")
     if ownership.get("scene_id") != scene_id:
         raise ValueError("Render output ownership marker belongs to another scene")
 
@@ -189,7 +195,18 @@ def render_scene(
     *,
     camera_ids: list[str] | None = None,
     request_path: Path | None = None,
+    composition_path: Path | None = None,
 ) -> dict[str, Any]:
+    if composition_path is not None:
+        from .composed_render import render_composed_scene
+
+        return render_composed_scene(
+            scene_path,
+            output,
+            camera_ids=camera_ids,
+            request_path=request_path,
+            composition_path=composition_path,
+        )
     validated = load_validated_scene_export(scene_path)
     scene = validated.scene
     requests = _load_requests(validated.cameras, camera_ids, request_path)
@@ -283,6 +300,11 @@ def _arguments() -> argparse.Namespace:
     parser.add_argument("--scene", type=Path, required=True)
     parser.add_argument("--camera-id", action="append", dest="camera_ids")
     parser.add_argument("--cameras", type=Path, help="nht_render_request_v1 JSON")
+    parser.add_argument(
+        "--composition",
+        type=Path,
+        help="nht_composed_render_request_v1 JSON",
+    )
     parser.add_argument("--output", type=Path, required=True)
     return parser.parse_args()
 
@@ -294,6 +316,7 @@ def main() -> None:
         args.output,
         camera_ids=args.camera_ids,
         request_path=args.cameras,
+        composition_path=args.composition,
     )
     print(json.dumps(result, indent=2))
 

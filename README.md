@@ -145,6 +145,12 @@ nht-render --scene WORKSPACE/export/scene.json \
 # nht_render_request_v1 の任意camera
 nht-render --scene WORKSPACE/export/scene.json \
   --cameras camera-request.json --output artifacts/render-arbitrary
+
+# nht_composed_render_request_v1 のasset-local Gaussianとrigid timeline
+nht-render --scene WORKSPACE/export/scene.json \
+  --cameras camera-request.json \
+  --composition composition.json \
+  --output artifacts/render-composed
 ```
 
 出力はcameraごとのfloat32 `rgb.npy`、`alpha.npy`、`depth.npy`とpreview、および
@@ -153,6 +159,21 @@ nht-render --scene WORKSPACE/export/scene.json \
 [`nht_pipeline/schemas/render-result.schema.json`](nht_pipeline/schemas/render-result.schema.json) に固定しています。
 package内のJSON Schemaが標準file boundaryの構造上の唯一の正本であり、runtimeは
 Schema照合後に座標系・file参照等の追加semantic validationを行います。
+
+composition modeはbackground checkpointを一度だけCUDAへloadし、各frameの
+asset-local Gaussianへrequestのpositive uniform similarityを適用してbackgroundと
+同じgsplat sceneでrasterizeします。backgroundはcameraごとにfrozen NHT shaderで1回だけ
+dense renderし、frame側のjoint eval3d passはbackgroundとassetの全Gaussianを同じ
+front-to-back transmittanceで処理してassetのdirect linear RGB、instance response、
+expected depthを同時に蓄積します。これによりNHT shaderの学習済み色域へasset色を
+近似fitせず、assetに定義したfelt/seam色を保持したままbackground遮蔽を反映します。
+出力はdense backgroundと、frame×camera順のjoint RGB・alpha・expected depth・
+instance IDを持つsparse chunkです。request/resultの正本は
+[`nht_pipeline/schemas/composed-render-request.schema.json`](nht_pipeline/schemas/composed-render-request.schema.json) と
+[`nht_pipeline/schemas/composed-render-result.schema.json`](nht_pipeline/schemas/composed-render-result.schema.json) です。
+direct RGBとinstance passは同じGaussian、camera、world-space response、
+front-to-back transmittanceを使う1回のeval3d rasterizationであり、backgroundの遮蔽を
+含みます。
 既存の非空outputを置換できるのは、同じscene IDのSchema-completeな`render.json`を持つNHT
 render成果物だけです。空directoryは置換できますが、markerのない非空directoryや
 別sceneの成果物は内容を保持したまま拒否します。stagingは実行ごとに一意です。

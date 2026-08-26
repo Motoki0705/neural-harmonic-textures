@@ -9,13 +9,23 @@ from typing import Any, Literal
 
 import jsonschema
 
-SchemaName = Literal["scene", "cameras", "render-request", "render-result", "run"]
+SchemaName = Literal[
+    "scene",
+    "cameras",
+    "render-request",
+    "render-result",
+    "composed-render-request",
+    "composed-render-result",
+    "run",
+]
 
 _SCHEMA_FILES: dict[SchemaName, str] = {
     "scene": "scene.schema.json",
     "cameras": "cameras.schema.json",
     "render-request": "render-request.schema.json",
     "render-result": "render-result.schema.json",
+    "composed-render-request": "composed-render-request.schema.json",
+    "composed-render-result": "composed-render-result.schema.json",
     "run": "run.schema.json",
 }
 
