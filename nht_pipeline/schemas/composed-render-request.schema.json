@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/neural-harmonic-textures/composed-render-request.schema.json",
+  "title": "NHT dynamic Gaussian composition request",
+  "type": "object",
+  "required": ["schema", "asset", "timeline", "visibility_threshold"],
+  "properties": {
+    "schema": {"const": "nht_composed_render_request_v1"},
+    "asset": {
+      "type": "object",
+      "required": ["asset_id", "coordinate_space", "appearance_model", "gaussian_count", "tensors"],
+      "properties": {
+        "asset_id": {"type": "string", "minLength": 1, "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"},
+        "coordinate_space": {"const": "right_handed_asset_local_metres"},
+        "appearance_model": {"const": "direct_linear_rgb"},
+        "gaussian_count": {"type": "integer", "minimum": 1},
+        "tensors": {"type": "string", "pattern": "^[^/\\\\]+\\.npz$"}
+      },
+      "additionalProperties": false
+    },
+    "timeline": {
+      "type": "object",
+      "required": ["coordinate_space", "frame_count", "object_count", "object_ids", "instance_ids", "tensors", "chunks"],
+      "properties": {
+        "coordinate_space": {"const": "canonical NHT scene space"},
+        "frame_count": {"type": "integer", "minimum": 1},
+        "object_count": {"type": "integer", "minimum": 1},
+        "object_ids": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"}
+        },
+        "instance_ids": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"type": "integer", "minimum": 1}
+        },
+        "tensors": {"type": "string", "pattern": "^[^/\\\\]+\\.npz$"},
+        "chunks": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["chunk_index", "frame_indices"],
+            "properties": {
+              "chunk_index": {"type": "integer", "minimum": 0},
+              "frame_indices": {
+                "type": "array",
+                "minItems": 1,
+                "items": {"type": "integer", "minimum": 0}
+              }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "visibility_threshold": {"type": "number", "exclusiveMinimum": 0, "exclusiveMaximum": 1}
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/neural-harmonic-textures/composed-render-result.schema.json",
+  "title": "NHT dynamic Gaussian composition result",
+  "type": "object",
+  "required": ["schema", "scene_schema", "scene_id", "coordinate_space", "background", "composition", "chunks", "cuda_peak_bytes"],
+  "properties": {
+    "schema": {"const": "nht_composed_render_result_v1"},
+    "scene_schema": {"const": "nht_standard_scene_v1"},
+    "scene_id": {"type": "string", "minLength": 1},
+    "coordinate_space": {"const": "canonical NHT scene space"},
+    "background": {"const": "background/render.json"},
+    "composition": {
+      "type": "object",
+      "required": ["request_schema", "frame_count", "object_count", "asset_gaussian_count", "appearance_model", "rasterization", "visibility_threshold"],
+      "properties": {
+        "request_schema": {"const": "nht_composed_render_request_v1"},
+        "frame_count": {"type": "integer", "minimum": 1},
+        "object_count": {"type": "integer", "minimum": 1},
+        "asset_gaussian_count": {"type": "integer", "minimum": 1},
+        "appearance_model": {"const": "direct_linear_rgb"},
+        "rasterization": {"const": "joint_3dgs_eval3d_transmittance_v1"},
+        "visibility_threshold": {"type": "number", "exclusiveMinimum": 0, "exclusiveMaximum": 1}
+      },
+      "additionalProperties": false
+    },
+    "chunks": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["chunk_id", "frame_indices", "camera_ids", "sample_count", "pixel_count", "arrays"],
+        "properties": {
+          "chunk_id": {"type": "string", "pattern": "^chunk-[0-9]{6}$"},
+          "frame_indices": {"type": "array", "minItems": 1, "items": {"type": "integer", "minimum": 0}},
+          "camera_ids": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {"type": "string", "minLength": 1}
+          },
+          "sample_count": {"type": "integer", "minimum": 1},
+          "pixel_count": {"type": "integer", "minimum": 0},
+          "arrays": {"type": "string", "pattern": "^chunks/chunk-[0-9]{6}/composed\\.npz$"}
+        },
+        "additionalProperties": false
+      }
+    },
+    "cuda_peak_bytes": {"type": "integer", "minimum": 0}
+  },
+  "additionalProperties": false
+}
