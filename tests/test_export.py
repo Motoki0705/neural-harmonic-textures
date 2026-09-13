@@ -173,7 +173,7 @@ def test_render_boundary_publishes_observed_and_arbitrary_rgb_alpha_depth(
             np.full((*shape, 1), 2.0, dtype=np.float32),
         )
 
-    monkeypatch.setattr("nht_pipeline.render._render_one", fake_render)
+    _patch_renderer(monkeypatch, fake_render)
     output = tmp_path.parent / f"{tmp_path.name}-render"
     result = render_scene(
         tmp_path / "scene.json",
@@ -208,7 +208,7 @@ def test_render_boundary_rejects_nonfinite_output_without_publication(
             np.ones((*shape, 1), dtype=np.float32),
         )
 
-    monkeypatch.setattr("nht_pipeline.render._render_one", fake_render)
+    _patch_renderer(monkeypatch, fake_render)
     output = tmp_path.parent / f"{tmp_path.name}-render"
     with pytest.raises(RuntimeError, match="invalid rgb"):
         render_scene(tmp_path / "scene.json", output, camera_ids=["frame_000000"])
@@ -408,7 +408,7 @@ def test_renderer_preserves_unowned_nonempty_output_before_render(
     def unexpected_render(*_args):
         raise AssertionError("renderer must not run for an unowned output")
 
-    monkeypatch.setattr("nht_pipeline.render._render_one", unexpected_render)
+    _patch_renderer(monkeypatch, unexpected_render)
 
     with pytest.raises(ValueError, match="ownership marker"):
         render_scene(tmp_path / "scene.json", output, camera_ids=["frame_000000"])
@@ -425,7 +425,7 @@ def test_renderer_preserves_output_owned_by_another_scene(
     sentinel = output / "important.txt"
     sentinel.write_text("preserve me")
     (output / "render.json").write_text(json.dumps(_render_result_marker("B99")))
-    monkeypatch.setattr("nht_pipeline.render._render_one", _fake_successful_render)
+    _patch_renderer(monkeypatch, _fake_successful_render)
 
     with pytest.raises(ValueError, match="another scene"):
         render_scene(tmp_path / "scene.json", output, camera_ids=["frame_000000"])
@@ -442,10 +442,8 @@ def test_renderer_replaces_only_empty_or_owned_output(
     output.mkdir()
     if existing == "owned":
         (output / "obsolete.txt").write_text("replace me")
-        (output / "render.json").write_text(
-            json.dumps(_render_result_marker("B00"))
-        )
-    monkeypatch.setattr("nht_pipeline.render._render_one", _fake_successful_render)
+        (output / "render.json").write_text(json.dumps(_render_result_marker("B00")))
+    _patch_renderer(monkeypatch, _fake_successful_render)
 
     render_scene(tmp_path / "scene.json", output, camera_ids=["frame_000000"])
 
@@ -462,7 +460,7 @@ def test_renderer_does_not_reclaim_fixed_name_staging_directory(
     old_staging.mkdir()
     sentinel = old_staging / "important.txt"
     sentinel.write_text("not owned by this process")
-    monkeypatch.setattr("nht_pipeline.render._render_one", _fake_successful_render)
+    _patch_renderer(monkeypatch, _fake_successful_render)
 
     render_scene(tmp_path / "scene.json", output, camera_ids=["frame_000000"])
 
@@ -479,7 +477,7 @@ def test_schema_contract_accepts_all_generated_standard_payloads(
     request_path = tmp_path / "request.json"
     request_path.write_text(json.dumps(request))
     output = tmp_path.parent / f"{tmp_path.name}-schema-render"
-    monkeypatch.setattr("nht_pipeline.render._render_one", _fake_successful_render)
+    _patch_renderer(monkeypatch, _fake_successful_render)
 
     validate_scene_export(tmp_path / "scene.json")
     render_scene(tmp_path / "scene.json", output, request_path=request_path)
@@ -541,10 +539,103 @@ def test_schema_contract_runtime_rejects_the_same_structural_payloads(
             scene_path, output, camera_ids=["frame_000000"]
         )
 
-    monkeypatch.setattr(
-        "nht_pipeline.render._render_one",
+    _patch_renderer(
+        monkeypatch,
         lambda *_args: pytest.fail("schema-invalid payload reached the renderer"),
     )
     assert not schema_validator(boundary).is_valid(payload)
     with pytest.raises(ValueError, match="canonical.*schema"):
         runtime_call()
+
+
+def _patch_renderer(monkeypatch, render_one):
+    class FakeRenderer:
+        def __init__(self, checkpoint, config):
+            self.checkpoint, self.config = checkpoint, config
+
+        def render_batch(self, requests):
+            return [render_one(self.checkpoint, self.config, item) for item in requests]
+
+    monkeypatch.setattr("nht_pipeline.render.ResidentSceneRenderer", FakeRenderer)
+
+
+@pytest.mark.parametrize("batch_size", [0, 33, True, 1.5])
+def test_render_batch_size_is_validated_before_scene_access(tmp_path, batch_size):
+    with pytest.raises(ValueError, match="batch_size"):
+        render_scene(
+            tmp_path / "absent.json", tmp_path / "output", batch_size=batch_size
+        )
+
+
+def test_render_loads_once_batches_and_preserves_mixed_resolution_order(
+    tmp_path, monkeypatch
+):
+    cameras = _valid_export(tmp_path)
+    camera = cameras["cameras"][0]
+    requests = [{**camera, "camera_id": f"camera-{i}"} for i in range(7)]
+    # Keep pinhole geometry valid while forcing a boundary at a new resolution.
+    requests[3]["width"] += 1
+    request_path = tmp_path / "request.json"
+    request_path.write_text(
+        json.dumps(
+            {
+                "schema": "nht_render_request_v1",
+                "cameras": [
+                    {
+                        key: value
+                        for key, value in item.items()
+                        if key
+                        in {
+                            "camera_id",
+                            "width",
+                            "height",
+                            "intrinsics",
+                            "camera_to_scene",
+                        }
+                    }
+                    for item in requests
+                ],
+            }
+        )
+    )
+    loads, batches = [], []
+
+    class CountingRenderer:
+        def __init__(self, checkpoint, config):
+            loads.append(checkpoint)
+
+        def render_batch(self, items):
+            batches.append([item["camera_id"] for item in items])
+            return [_fake_successful_render(None, None, item) for item in items]
+
+    monkeypatch.setattr("nht_pipeline.render.ResidentSceneRenderer", CountingRenderer)
+    output = tmp_path.parent / f"{tmp_path.name}-batches"
+    result = render_scene(
+        tmp_path / "scene.json", output, request_path=request_path, batch_size=2
+    )
+    assert len(loads) == 1
+    assert [len(batch) for batch in batches] == [2, 1, 1, 2, 1]
+    assert [item["camera_id"] for item in result["renders"]] == [
+        item["camera_id"] for item in requests
+    ]
+
+
+def test_failed_later_batch_keeps_previous_published_output(tmp_path, monkeypatch):
+    _valid_export(tmp_path)
+    output = tmp_path.parent / f"{tmp_path.name}-retained"
+    output.mkdir()
+    (output / "render.json").write_text(json.dumps(_render_result_marker("B00")))
+    (output / "sentinel").write_text("retain")
+
+    class FailedRenderer:
+        def __init__(self, *args):
+            pass
+
+        def render_batch(self, requests):
+            raise RuntimeError("CUDA batch failed")
+
+    monkeypatch.setattr("nht_pipeline.render.ResidentSceneRenderer", FailedRenderer)
+    with pytest.raises(RuntimeError, match="CUDA batch failed"):
+        render_scene(tmp_path / "scene.json", output)
+    assert (output / "sentinel").read_text() == "retain"
+    assert not list(output.parent.glob(f".{output.name}.*.staging"))

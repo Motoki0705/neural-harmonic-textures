@@ -147,6 +147,13 @@ nht-render --scene WORKSPACE/export/scene.json \
   --cameras camera-request.json --output artifacts/render-arbitrary
 ```
 
+`nht-render`は呼び出しごとにcheckpointとshaderを一度だけCUDAへロードし、
+リクエスト全体を同じrendererで処理します。`--batch-size 4`（既定値、1〜32）で
+同一解像度のcameraをまとめてラスタライズします。解像度が変わる位置でバッチを
+区切り、入力順序を保持します。固定gsplatのshaderはC=1のみ対応するため、
+デコードは同じshaderをcameraごとに再利用します。OOM時の自動バッチ縮小は行わず、
+必要なら明示的に`--batch-size 1`を指定してください。公開file schemaは変わりません。
+
 出力はcameraごとのfloat32 `rgb.npy`、`alpha.npy`、`depth.npy`とpreview、および
 `nht_render_result_v1`の`render.json`です。request/result schemaは
 [`nht_pipeline/schemas/render-request.schema.json`](nht_pipeline/schemas/render-request.schema.json) と
