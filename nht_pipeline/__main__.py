@@ -27,6 +27,9 @@ def _arguments() -> argparse.Namespace:
     parser.add_argument("--input-video", type=Path)
     parser.add_argument("--workspace", type=Path, required=True)
     parser.add_argument("--config", type=Path)
+    parser.add_argument("--source-workspace", type=Path)
+    parser.add_argument("--replacement-images", type=Path)
+    parser.add_argument("--prepare-only", action="store_true")
     parser.add_argument("--from-stage", choices=stage_names(), default="frames")
     parser.add_argument(
         "--through-stage",
@@ -39,6 +42,26 @@ def _arguments() -> argparse.Namespace:
 def main() -> None:
     args = _arguments()
     workspace = args.workspace.resolve()
+    from .import_workspace import import_workspace, validate_import_request
+
+    if bool(args.source_workspace) != bool(args.replacement_images):
+        raise SystemExit(
+            "--source-workspace and --replacement-images must be supplied together"
+        )
+    if args.prepare_only and args.source_workspace is None:
+        raise SystemExit("--prepare-only requires --source-workspace")
+    if args.source_workspace is not None:
+        source = args.source_workspace.resolve()
+        if (
+            source == workspace
+            or source in workspace.parents
+            or workspace in source.parents
+        ):
+            raise SystemExit("Source and destination workspaces must be separate")
+        if args.from_stage != "nht_training" or args.input_video is not None:
+            raise SystemExit(
+                "Source import requires --from-stage nht_training and no --input-video"
+            )
     with WorkspaceLock(workspace) as lock:
         manifest_path = workspace / "run.json"
         resolved_path = workspace / "resolved-config.yaml"
@@ -50,6 +73,19 @@ def main() -> None:
         else:
             config = load_config(None)
 
+        if args.source_workspace is not None:
+            state = import_workspace(
+                args.source_workspace,
+                args.replacement_images,
+                workspace,
+                args.scene_id,
+                config,
+            )
+            previous_config = config
+            if args.prepare_only:
+                return
+
+        validate_import_request(workspace, config, args.from_stage)
         if manifest_path.exists():
             state = RunState.load(workspace)
             if state.payload["scene_id"] != args.scene_id:
@@ -80,6 +116,7 @@ def main() -> None:
         effective = effective_start_stage(
             args.from_stage, affected, input_video_changed=input_changed
         )
+        validate_import_request(workspace, config, effective)
         state.request(args.from_stage, args.through_stage, effective)
         write_resolved_config(resolved_path, config)
         context = PipelineContext(

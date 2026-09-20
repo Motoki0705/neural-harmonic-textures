@@ -115,13 +115,19 @@ def preflight_stage(
             _store_checks(workspace, stage_name, checks)
             raise
         inherited_environment = os.environ.copy()
+        # Enumerate devices without importing trainer CUDA extensions. On mixed
+        # GPU architectures those extensions may reject an unselected device.
         probe = subprocess.run(
             [
                 str(python),
-                str(adapter),
-                "probe",
-                "--trainer",
-                str(trainer),
+                "-c",
+                (
+                    "import json, torch; print(json.dumps({"
+                    "'cuda_available': torch.cuda.is_available(), "
+                    "'cuda_devices': torch.cuda.device_count(), "
+                    "'cuda_names': [torch.cuda.get_device_name(i) "
+                    "for i in range(torch.cuda.device_count())]}))"
+                ),
             ],
             check=False,
             capture_output=True,

@@ -36,11 +36,13 @@ def test_nht_preflight_selects_the_configured_logical_cuda_index(
         "nht_pipeline.preflight.resolve_trainer", lambda *_args: (python, trainer)
     )
     environments = []
+    commands = []
     initial_device_count = (
         len(inherited_mask.split(",")) if inherited_mask is not None else 2
     )
 
     def fake_run(_command, **kwargs):
+        commands.append(_command)
         environment = kwargs.get("env")
         payload = (
             {
@@ -59,6 +61,9 @@ def test_nht_preflight_selects_the_configured_logical_cuda_index(
     checks = preflight_stage(tmp_path, "nht_training", config, tmp_path)
 
     assert environments[0].get("CUDA_VISIBLE_DEVICES") == inherited_mask
+    assert commands[0][1] == "-c"
+    assert str(trainer) not in commands[0]
+    assert "probe" in commands[1] and str(trainer) in commands[1]
     assert environments[1]["CUDA_VISIBLE_DEVICES"] == selected_token
     assert checks["nht_runtime"]["configured_cuda_device"] == configured_device
     assert checks["nht_runtime"]["selected_cuda_token"] == selected_token

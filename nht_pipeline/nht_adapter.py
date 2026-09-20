@@ -131,7 +131,9 @@ def _instrument_parser(
                         "camera_id": int(camera_id),
                         "camera_index": int(self.camera_indices[index]),
                         "split": (
-                            "validation" if index % self.test_every == 0 else "train"
+                            "validation"
+                            if self.source_indices[index] % self.test_every == 0
+                            else "train"
                         ),
                         "width": int(width),
                         "height": int(height),
@@ -170,6 +172,10 @@ def _instrument_parser(
                     "scene_scale": float(self.scene_scale),
                     "test_every": int(self.test_every),
                     "camera_count": len(cameras),
+                    "full_image_count": int(self.full_image_count),
+                    "source_image_indices": [
+                        int(index) for index in self.source_indices
+                    ],
                     "cameras": cameras,
                 },
             )

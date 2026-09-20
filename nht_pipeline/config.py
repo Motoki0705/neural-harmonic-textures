@@ -81,6 +81,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "maximum_candidates": 2,
     },
     "nht_training": {
+        "image_names": None,
         "data_factor": 2,
         "max_steps": 30_000,
         "cap_max": 1_000_000,
@@ -253,10 +254,33 @@ class NhtTrainingConfig:
     post_processing: None
     near_plane: float
     far_plane: float
+    image_names: tuple[str, ...] | None = None
 
     @classmethod
     def from_mapping(cls, value: dict[str, Any]) -> NhtTrainingConfig:
+        value = {"image_names": None, **value}
         _expect_exact_keys(value, _SECTION_KEYS["nht_training"], "nht_training")
+        image_names = value["image_names"]
+        if image_names is not None:
+            if not isinstance(image_names, list) or not image_names:
+                raise ValueError(
+                    "nht_training.image_names must be null or a nonempty list"
+                )
+            if any(
+                not isinstance(name, str)
+                or not name
+                or name != name.strip()
+                or "\\" in name
+                or Path(name).is_absolute()
+                or any(part in {".", ".."} for part in name.split("/"))
+                or Path(name).as_posix() != name
+                for name in image_names
+            ):
+                raise ValueError(
+                    "nht_training.image_names must contain normalized relative image names"
+                )
+            if len(set(image_names)) != len(image_names):
+                raise ValueError("nht_training.image_names contains duplicates")
         camera_model = _expect_string(
             value["camera_model"], "nht_training.camera_model"
         )
@@ -299,6 +323,7 @@ class NhtTrainingConfig:
             post_processing=None,
             near_plane=near_plane,
             far_plane=far_plane,
+            image_names=tuple(sorted(image_names)) if image_names is not None else None,
         )
 
     def to_mapping(self) -> dict[str, Any]:
@@ -318,6 +343,9 @@ class NhtTrainingConfig:
             "post_processing": self.post_processing,
             "near_plane": self.near_plane,
             "far_plane": self.far_plane,
+            "image_names": list(self.image_names)
+            if self.image_names is not None
+            else None,
         }
 
 

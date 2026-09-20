@@ -149,6 +149,8 @@ def run_training(
             *[str(argument) for argument in config["extra_args"]],
         ]
     )
+    if config["image_names"] is not None:
+        command.extend(["--image_names", *config["image_names"]])
     manifest: dict[str, Any] = {
         "schema": "nht_training_v1",
         "status": "running",
@@ -161,6 +163,7 @@ def run_training(
         "max_steps": max_steps,
         "cap_max": config["cap_max"],
         "data_factor": factor,
+        "image_names": config["image_names"],
         "configured_cuda_device": config["cuda_device"],
         "selected_cuda_token": selected_cuda_token,
         "checkpoint": None,

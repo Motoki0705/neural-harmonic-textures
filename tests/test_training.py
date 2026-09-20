@@ -86,6 +86,7 @@ args.runtime_output.write_text(json.dumps({
             "post_processing": None,
             "near_plane": 0.125,
             "far_plane": 456.0,
+            "image_names": ["frame_000000.jpg", "frame_000001.jpg"],
         },
         tmp_path,
     )
@@ -98,6 +99,10 @@ args.runtime_output.write_text(json.dumps({
     runtime = json.loads((output_root / "model/runtime-config.json").read_text())
     assert runtime["cuda_visible_devices"] == "5"
     command = manifest["command"]
+    assert command[command.index("--image_names") + 1 :] == [
+        "frame_000000.jpg",
+        "frame_000001.jpg",
+    ]
     assert command[command.index("--near_plane") + 1] == "0.125"
     assert command[command.index("--far_plane") + 1] == "456.0"
     persisted = json.loads((output_root / "training.json").read_text())

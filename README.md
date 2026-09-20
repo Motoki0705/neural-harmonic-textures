@@ -73,6 +73,32 @@ uv run python -m nht_pipeline \
 研究用の `--through-stage` は指定 stage で停止します。この場合 `run.json` の
 top-level status は `pending` となり、未実行 descendants を completed と扱いません。
 
+## 既存SfMと置換画像からの学習
+
+`nht_training.image_names`に学習・評価へ使用する画像名のリストを指定すると、
+元SfM全体で座標正規化とscene scaleを計算した後で画像を選択します。
+分割は元の全画像を名前順に並べた順位と`test_every`で決まり、subset内では
+振り直しません。`null`または省略時は従来どおり全画像を使います。
+下記の`configs/clay.yaml`は元workspaceの`resolved-config.yaml`をコピーし、
+`nht_training.image_names`と学習条件を変更した設定を用意してください。
+
+```bash
+nht-reconstruct --scene-id tennis-clay --workspace artifacts/tennis-clay/reconstruction \
+  --config configs/clay.yaml --from-stage nht_training \
+  --source-workspace artifacts/tennis-court/reconstruction \
+  --replacement-images data/clay-images --prepare-only
+nht-reconstruct --scene-id tennis-clay --workspace artifacts/tennis-clay/reconstruction \
+  --from-stage nht_training
+```
+
+取込先は空の独立workspaceにします。置換ディレクトリは`image_names`と完全に
+同じファイル集合で、元SfMカメラと同じ寸法のRGB画像が必要です。
+SfMは`rigs.bin`・`frames.bin`も含めてコピーし、縮小画像を置換画像から生成します。
+元checkpoint・特徴点DB・exportは取り込みません。import-provenanceに元データと
+コピー先のハッシュ、選択、元順位を記録します。取込済みworkspaceでは上流stageの
+再実行と画像選択の変更を拒否するため、別条件は新しいworkspaceを作成してください。
+`--prepare-only`を省略すると取込に続けて学習を実行します。
+
 ## Canonical workspace
 
 ```text
