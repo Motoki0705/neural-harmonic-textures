@@ -13,6 +13,16 @@ from typing import Any
 import numpy as np
 from PIL import Image
 
+from .appearance import (
+    AppearanceControls,
+    AppearancePolicy,
+    blended_log_scales,
+    blended_opacities,
+    blended_ray_channels,
+    gaussian_splat_progress,
+    largest_first_ranks,
+    optical_axis_ray_channels,
+)
 from .export import (
     ValidatedSceneExport,
     load_validated_scene_export,
@@ -31,12 +41,13 @@ def _load_requests(
     observed_cameras: list[dict[str, Any]],
     camera_ids: list[str] | None,
     request_path: Path | None,
-) -> list[dict[str, Any]]:
+) -> tuple[list[dict[str, Any]], AppearancePolicy | None]:
     observed = {
         camera["camera_id"]: {**camera, "request_source": "observed"}
         for camera in observed_cameras
     }
     requests: list[dict[str, Any]] = []
+    policy: AppearancePolicy | None = None
     if camera_ids:
         missing = [
             identifier for identifier in camera_ids if identifier not in observed
@@ -49,9 +60,23 @@ def _load_requests(
         validate_schema_payload(
             "render-request", payload, context="Arbitrary camera request"
         )
-        arbitrary = payload["cameras"]
-        for camera in arbitrary:
-            requests.append({**camera, "request_source": "arbitrary"})
+        if "appearance_policy" in payload:
+            policy = AppearancePolicy.from_payload(payload["appearance_policy"])
+        staged = 0
+        for camera in payload["cameras"]:
+            request = {**camera, "request_source": "arbitrary"}
+            if "appearance" in camera:
+                if policy is None:
+                    raise ValueError(
+                        "Camera appearance controls require a request appearance_policy"
+                    )
+                request["appearance"] = AppearanceControls.from_payload(
+                    camera["appearance"]
+                )
+                staged += 1
+            requests.append(request)
+        if policy is not None and staged == 0:
+            raise ValueError("appearance_policy is set but no camera uses appearance")
     if not requests:
         requests = list(observed.values())
     identifiers: set[str] = set()
@@ -61,7 +86,7 @@ def _load_requests(
             raise ValueError(f"Duplicate render camera ID: {identifier}")
         identifiers.add(identifier)
         validate_pinhole_camera(request, identifier)
-    return requests
+    return requests, policy
 
 
 class ResidentSceneRenderer:
@@ -101,16 +126,36 @@ class ResidentSceneRenderer:
         self.shader = shader
         self.config = config
         self.device = device
+        self._largest_first_ranks: Any = None
 
     def render(
-        self, request: dict[str, Any]
+        self,
+        request: dict[str, Any],
+        policy: AppearancePolicy | None = None,
     ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-        return self.render_batch([request])[0]
+        return self.render_batch([request], policy)[0]
+
+    def _splat_ranks(self) -> Any:
+        """Compute the deterministic largest-first order once per checkpoint."""
+        if self._largest_first_ranks is None:
+            import torch
+
+            ranks = largest_first_ranks(
+                self.splats["scales"].detach().float().cpu().numpy()
+            )
+            self._largest_first_ranks = torch.from_numpy(ranks).to(self.device)
+        return self._largest_first_ranks
 
     def render_batch(
-        self, requests: list[dict[str, Any]]
+        self,
+        requests: list[dict[str, Any]],
+        policy: AppearancePolicy | None = None,
     ) -> list[tuple[np.ndarray, np.ndarray, np.ndarray]]:
-        """Rasterize equal-resolution cameras together, preserving input order."""
+        """Rasterize equal-resolution cameras together, preserving input order.
+
+        Cameras in one batch share one appearance state because the Gaussian
+        parameters are rasterized together.
+        """
         if not requests:
             raise ValueError("A render batch must contain at least one camera")
         request = requests[0]
@@ -119,6 +164,11 @@ class ResidentSceneRenderer:
             for item in requests
         ):
             raise ValueError("A render batch requires equal camera resolutions")
+        controls: AppearanceControls | None = request.get("appearance")
+        if any(item.get("appearance") != controls for item in requests):
+            raise ValueError("A render batch requires one shared appearance state")
+        if (controls is None) != (policy is None):
+            raise ValueError("Appearance controls and policy must be given together")
         import torch
         from gsplat.rendering import rasterization
 
@@ -128,6 +178,36 @@ class ResidentSceneRenderer:
             self.config,
             self.device,
         )
+        log_scales = splats["scales"]
+        opacities = torch.sigmoid(splats["opacities"])
+        fixed_rays = None
+        if controls is not None:
+            assert policy is not None
+            progress = gaussian_splat_progress(
+                self._splat_ranks(), controls.splat_progress, policy.splat_stagger
+            )
+            log_scales = blended_log_scales(log_scales, progress, policy.point_radius)
+            opacities = blended_opacities(opacities, progress)
+            if controls.view_dependence < 1.0:
+                if not shader.enable_view_encoding:
+                    raise ValueError(
+                        "view_dependence < 1 requires a view-encoding NHT shader"
+                    )
+                if bool(config["deferred_opt_center_ray_encoding"]):
+                    raise ValueError(
+                        "view_dependence < 1 requires per-pixel ray encoding"
+                    )
+                fixed_rays = [
+                    torch.as_tensor(
+                        optical_axis_ray_channels(
+                            np.asarray(item["camera_to_scene"], dtype=np.float64),
+                            float(shader.ray_dir_scale),
+                        ),
+                        dtype=torch.float32,
+                        device=device,
+                    )
+                    for item in requests
+                ]
         camera_to_scene = torch.as_tensor(
             [item["camera_to_scene"] for item in requests],
             dtype=torch.float32,
@@ -144,8 +224,8 @@ class ResidentSceneRenderer:
             rendered, alpha, _ = rasterization(
                 means=splats["means"],
                 quats=splats["quats"],
-                scales=torch.exp(splats["scales"]),
-                opacities=torch.sigmoid(splats["opacities"]),
+                scales=torch.exp(log_scales),
+                opacities=opacities,
                 colors=splats["features"],
                 sh_degree=None,
                 viewmats=torch.linalg.inv(camera_to_scene),
@@ -170,7 +250,17 @@ class ResidentSceneRenderer:
             # batched; decode each camera with the same resident shader instance.
             outputs = []
             for index in range(len(requests)):
-                rgb, extras = shader(rendered[index : index + 1])
+                camera_data = rendered[index : index + 1]
+                if fixed_rays is not None:
+                    assert controls is not None
+                    start = int(shader.encoded_dim)
+                    camera_data = camera_data.clone()
+                    camera_data[..., start : start + 3] = blended_ray_channels(
+                        camera_data[..., start : start + 3],
+                        fixed_rays[index],
+                        controls.view_dependence,
+                    )
+                rgb, extras = shader(camera_data)
                 if extras is None or extras.shape[-1] < 1:
                     raise RuntimeError("NHT runtime did not return expected depth")
                 outputs.append(
@@ -187,8 +277,9 @@ def _render_batches(
     renderer: ResidentSceneRenderer,
     requests: list[dict[str, Any]],
     batch_size: int,
+    policy: AppearancePolicy | None = None,
 ) -> Iterator[tuple[dict[str, Any], tuple[np.ndarray, np.ndarray, np.ndarray]]]:
-    """Keep order and bound live arrays; split batches at resolution changes."""
+    """Keep order and bound live arrays; split at resolution or appearance changes."""
     offset = 0
     while offset < len(requests):
         first = requests[offset]
@@ -197,11 +288,14 @@ def _render_batches(
             if (requests[end]["width"], requests[end]["height"]) != (
                 first["width"],
                 first["height"],
-            ):
+            ) or requests[end].get("appearance") != first.get("appearance"):
                 break
             end += 1
         batch = requests[offset:end]
-        outputs = renderer.render_batch(batch)
+        if first.get("appearance") is None:
+            outputs = renderer.render_batch(batch)
+        else:
+            outputs = renderer.render_batch(batch, policy)
         yield from zip(batch, outputs, strict=True)
         del outputs
         offset = end
@@ -260,7 +354,7 @@ def render_scene(
         raise ValueError("batch_size must be an integer in 1..32")
     validated = load_validated_scene_export(scene_path)
     scene = validated.scene
-    requests = _load_requests(validated.cameras, camera_ids, request_path)
+    requests, policy = _load_requests(validated.cameras, camera_ids, request_path)
     output = _safe_output_path(output, validated)
     output.parent.mkdir(parents=True, exist_ok=True)
     staging = Path(
@@ -274,7 +368,7 @@ def render_scene(
             validated.checkpoint_path, validated.runtime_config
         )
         for request, (rgb, alpha, depth) in _render_batches(
-            renderer, requests, batch_size
+            renderer, requests, batch_size, policy
         ):
             identifier = _safe_identifier(str(request["camera_id"]))
             camera_root = staging / identifier
@@ -310,19 +404,25 @@ def render_scene(
             Image.fromarray(
                 (alpha[..., 0] * 255.0 + 0.5).astype(np.uint8), mode="L"
             ).save(camera_root / "alpha.png")
-            records.append(
-                {
-                    "camera_id": identifier,
-                    "request_source": request["request_source"],
-                    "width": int(request["width"]),
-                    "height": int(request["height"]),
-                    "rgb": f"{identifier}/rgb.npy",
-                    "rgb_preview": f"{identifier}/rgb.png",
-                    "alpha": f"{identifier}/alpha.npy",
-                    "alpha_preview": f"{identifier}/alpha.png",
-                    "depth": f"{identifier}/depth.npy",
+            record: dict[str, Any] = {
+                "camera_id": identifier,
+                "request_source": request["request_source"],
+                "width": int(request["width"]),
+                "height": int(request["height"]),
+                "rgb": f"{identifier}/rgb.npy",
+                "rgb_preview": f"{identifier}/rgb.png",
+                "alpha": f"{identifier}/alpha.npy",
+                "alpha_preview": f"{identifier}/alpha.png",
+                "depth": f"{identifier}/depth.npy",
+            }
+            controls = request.get("appearance")
+            if controls is not None:
+                assert policy is not None
+                record["appearance"] = {
+                    "policy": policy.to_payload(),
+                    "controls": controls.to_payload(),
                 }
-            )
+            records.append(record)
         manifest = {
             "schema": "nht_render_result_v1",
             "scene_schema": scene["schema"],

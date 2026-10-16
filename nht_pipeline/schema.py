@@ -8,6 +8,7 @@ from importlib.resources import files
 from typing import Any, Literal
 
 import jsonschema
+from referencing import Registry, Resource
 
 SchemaName = Literal["scene", "cameras", "render-request", "render-result", "run"]
 
@@ -29,9 +30,21 @@ def load_schema(name: SchemaName) -> dict[str, Any]:
 
 
 @cache
+def _schema_registry() -> Registry:
+    """Resolve cross-file ``$ref`` values by each packaged schema's ``$id``."""
+    resources = []
+    for schema_name in _SCHEMA_FILES:
+        payload = load_schema(schema_name)
+        resources.append((payload["$id"], Resource.from_contents(payload)))
+    return Registry().with_resources(resources)
+
+
+@cache
 def schema_validator(name: SchemaName) -> jsonschema.Draft202012Validator:
     return jsonschema.Draft202012Validator(
-        load_schema(name), format_checker=jsonschema.FormatChecker()
+        load_schema(name),
+        registry=_schema_registry(),
+        format_checker=jsonschema.FormatChecker(),
     )
 
 
