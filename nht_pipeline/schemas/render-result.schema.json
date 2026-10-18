@@ -25,7 +25,16 @@
           "rgb_preview": {"type": "string", "pattern": "^[^/]+/rgb\\.png$"},
           "alpha": {"type": "string", "pattern": "^[^/]+/alpha\\.npy$"},
           "alpha_preview": {"type": "string", "pattern": "^[^/]+/alpha\\.png$"},
-          "depth": {"type": "string", "pattern": "^[^/]+/depth\\.npy$"}
+          "depth": {"type": "string", "pattern": "^[^/]+/depth\\.npy$"},
+          "appearance": {
+            "type": "object",
+            "required": ["policy", "controls"],
+            "properties": {
+              "policy": {"$ref": "render-request.schema.json#/$defs/appearancePolicy"},
+              "controls": {"$ref": "render-request.schema.json#/$defs/appearance"}
+            },
+            "additionalProperties": false
+          }
         },
         "additionalProperties": false
       }

@@ -180,6 +180,20 @@ nht-render --scene WORKSPACE/export/scene.json \
 デコードは同じshaderをcameraごとに再利用します。OOM時の自動バッチ縮小は行わず、
 必要なら明示的に`--batch-size 1`を指定してください。公開file schemaは変わりません。
 
+任意cameraのrequestには、学習済みsceneを途中段階で見せるための
+`appearance_policy`（request全体）とcameraごとの`appearance`を指定できます。
+どちらか一方だけの指定は拒否します。値はすべて`[0, 1]`で、すべて1のとき通常の
+描画と同一の出力になります。
+
+- `splat_progress`: 各Gaussianが半径`point_radius`（scene単位）の不透明な球から、
+  学習済みのscaleと不透明度へ育ちます。`splat_order: largest_first`の順で
+  `splat_stagger`ずつずらして育つため、粗い構造から細部へ現れます。
+- `view_dependence`: shaderに渡す視線方向を、camera光軸の固定値から画素ごとの
+  実際の視線へ補間します。view encodingのないshaderでは1未満を拒否します。
+
+同じ`appearance`が続くcameraだけを1バッチにまとめ、結果の各renderには使った
+`policy`と`controls`をそのまま記録します。
+
 出力はcameraごとのfloat32 `rgb.npy`、`alpha.npy`、`depth.npy`とpreview、および
 `nht_render_result_v1`の`render.json`です。request/result schemaは
 [`nht_pipeline/schemas/render-request.schema.json`](nht_pipeline/schemas/render-request.schema.json) と
