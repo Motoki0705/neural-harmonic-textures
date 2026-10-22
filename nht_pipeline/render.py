@@ -349,10 +349,13 @@ def render_scene(
     camera_ids: list[str] | None = None,
     request_path: Path | None = None,
     batch_size: int = 4,
+    without_source_images: bool = False,
 ) -> dict[str, Any]:
     if type(batch_size) is not int or not 1 <= batch_size <= 32:
         raise ValueError("batch_size must be an integer in 1..32")
-    validated = load_validated_scene_export(scene_path)
+    validated = load_validated_scene_export(
+        scene_path, without_source_images=without_source_images
+    )
     scene = validated.scene
     requests, policy = _load_requests(validated.cameras, camera_ids, request_path)
     output = _safe_output_path(output, validated)
@@ -453,6 +456,10 @@ def _arguments() -> argparse.Namespace:
     parser.add_argument("--cameras", type=Path, help="nht_render_request_v1 JSON")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument(
+        "--without-source-images", action="store_true",
+        help="Render a transferred export without captured images; validate geometry and model only",
+    )
+    parser.add_argument(
         "--batch-size", type=int, default=4, help="Cameras per GPU batch (1..32)"
     )
     return parser.parse_args()
@@ -466,6 +473,7 @@ def main() -> None:
         camera_ids=args.camera_ids,
         request_path=args.cameras,
         batch_size=args.batch_size,
+        without_source_images=args.without_source_images,
     )
     print(json.dumps(result, indent=2))
 

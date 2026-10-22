@@ -5,11 +5,10 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-from PIL import Image
-
-from nht_pipeline.export import validate_scene_export
+from nht_pipeline.export import load_validated_scene_export, validate_scene_export
 from nht_pipeline.render import render_scene
 from nht_pipeline.schema import schema_validator, validate_schema_payload
+from PIL import Image
 
 
 def _valid_export(tmp_path):
@@ -121,6 +120,52 @@ def test_export_validator_accepts_semantically_consistent_scene(tmp_path) -> Non
     assert result["point_count"] == 1
     assert result["valid"] is True
     assert "proper_orthonormal_rotations" in result["checks"]
+
+
+def test_source_images_may_only_be_omitted_explicitly(tmp_path, monkeypatch) -> None:
+    _valid_export(tmp_path)
+    (tmp_path / "images/frame_000000.jpg").unlink()
+    (tmp_path / "images").rmdir()
+    with pytest.raises(FileNotFoundError, match="Image root"):
+        load_validated_scene_export(tmp_path / "scene.json")
+
+    def fake_render(_checkpoint, _runtime, camera):
+        shape = (camera["height"], camera["width"])
+        return (
+            np.full((*shape, 3), 0.5, dtype=np.float32),
+            np.ones((*shape, 1), dtype=np.float32),
+            np.full((*shape, 1), 2.0, dtype=np.float32),
+        )
+
+    _patch_renderer(monkeypatch, fake_render)
+    result = render_scene(
+        tmp_path / "scene.json", tmp_path.parent / f"{tmp_path.name}-render",
+        camera_ids=["frame_000000"], without_source_images=True,
+    )
+    checks = result["export_validation"]["checks"]
+    assert "source_images_explicitly_omitted" in checks
+    assert "camera_image_resolution" not in checks
+    assert result["renders"][0]["camera_id"] == "frame_000000"
+
+
+@pytest.mark.parametrize("reference", ["../escape.jpg", "/tmp/escape.jpg"])
+def test_omitting_images_still_rejects_unsafe_references(tmp_path, reference) -> None:
+    cameras = _valid_export(tmp_path)
+    cameras["cameras"][0]["image"] = reference
+    (tmp_path / "cameras.json").write_text(json.dumps(cameras))
+    with pytest.raises(ValueError):
+        load_validated_scene_export(
+            tmp_path / "scene.json", without_source_images=True
+        )
+
+
+def test_omitting_images_still_requires_checkpoint(tmp_path) -> None:
+    _valid_export(tmp_path)
+    (tmp_path / "model/ckpts/model.pt").unlink()
+    with pytest.raises(FileNotFoundError):
+        load_validated_scene_export(
+            tmp_path / "scene.json", without_source_images=True
+        )
 
 
 def test_export_validator_rejects_improper_rotation(tmp_path) -> None:
