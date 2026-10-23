@@ -37,6 +37,7 @@ def _resolve_export_reference(
     description: str,
     *,
     kind: str,
+    required: bool = True,
 ) -> Path:
     if type(reference) is not str or not reference:
         raise ValueError(f"{description} must be a non-empty relative path")
@@ -44,14 +45,14 @@ def _resolve_export_reference(
     if relative.is_absolute() or any(part in {".", ".."} for part in relative.parts):
         raise ValueError(f"{description} is not an export-relative path: {reference}")
     try:
-        resolved = (export_root / relative).resolve(strict=True)
+        resolved = (export_root / relative).resolve(strict=required)
     except FileNotFoundError as error:
         raise FileNotFoundError(f"{description} is absent: {reference}") from error
     if not resolved.is_relative_to(export_root):
         raise ValueError(f"{description} escapes the export root: {reference}")
-    if kind == "file" and not resolved.is_file():
+    if required and kind == "file" and not resolved.is_file():
         raise FileNotFoundError(f"{description} is not a file: {reference}")
-    if kind == "directory" and not resolved.is_dir():
+    if required and kind == "directory" and not resolved.is_dir():
         raise FileNotFoundError(f"{description} is not a directory: {reference}")
     return resolved
 
@@ -274,7 +275,11 @@ def create_scene_export(
     return scene
 
 
-def load_validated_scene_export(scene_path: Path) -> ValidatedSceneExport:
+def load_validated_scene_export(
+    scene_path: Path, *, without_source_images: bool = False
+) -> ValidatedSceneExport:
+    if type(without_source_images) is not bool:
+        raise TypeError("without_source_images must be a boolean")
     if scene_path.name != "scene.json" or scene_path.is_symlink():
         raise ValueError("The renderer entrypoint must be an ordinary scene.json file")
     resolved_scene_path = scene_path.resolve(strict=True)
@@ -345,7 +350,8 @@ def load_validated_scene_export(scene_path: Path) -> ValidatedSceneExport:
     identifiers: set[str] = set()
     image_paths: set[str] = set()
     image_root = _resolve_export_reference(
-        export_root, scene.get("image_root"), "Image root", kind="directory"
+        export_root, scene.get("image_root"), "Image root", kind="directory",
+        required=not without_source_images,
     )
     for camera in cameras:
         identifier = camera["camera_id"]
@@ -364,16 +370,18 @@ def load_validated_scene_export(scene_path: Path) -> ValidatedSceneExport:
             raise ValueError(f"Duplicate camera image path: {camera['image']}")
         image_paths.add(camera["image"])
         image_path = _resolve_export_reference(
-            export_root, camera["image"], f"Camera image for {identifier}", kind="file"
+            export_root, camera["image"], f"Camera image for {identifier}", kind="file",
+            required=not without_source_images,
         )
         if not image_path.is_relative_to(image_root):
             raise ValueError(f"Camera image is outside image_root: {camera['image']}")
-        with Image.open(image_path) as exported_image:
-            if (exported_image.width, exported_image.height) != (
-                camera["width"],
-                camera["height"],
-            ):
-                raise ValueError(f"Image resolution mismatch for {identifier}")
+        if not without_source_images:
+            with Image.open(image_path) as exported_image:
+                if (exported_image.width, exported_image.height) != (
+                    camera["width"],
+                    camera["height"],
+                ):
+                    raise ValueError(f"Image resolution mismatch for {identifier}")
     model_root = _resolve_export_reference(
         export_root, scene.get("model_root"), "Model root", kind="directory"
     )
@@ -433,7 +441,8 @@ def load_validated_scene_export(scene_path: Path) -> ValidatedSceneExport:
             "unique_camera_and_image_ids",
             "positive_intrinsics",
             "proper_orthonormal_rotations",
-            "camera_image_resolution",
+            "source_images_explicitly_omitted" if without_source_images
+            else "camera_image_resolution",
             "nht_checkpoint",
             "canonical_scene_transform_inverse",
             "effective_undistorted_training_cameras",

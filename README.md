@@ -180,6 +180,12 @@ nht-render --scene WORKSPACE/export/scene.json \
 デコードは同じshaderをcameraごとに再利用します。OOM時の自動バッチ縮小は行わず、
 必要なら明示的に`--batch-size 1`を指定してください。公開file schemaは変わりません。
 
+撮影画像を含めずにexportの幾何・modelだけを転送した場合は、
+`--without-source-images`を明示します。画像参照の包含検査、カメラ校正、
+point cloud、checkpoint、runtimeの検証は維持し、画像の存在・解像度検査だけを
+省きます。`export_validation.checks`は`source_images_explicitly_omitted`を記録します。
+通常の完全export検証は引き続き撮影画像を必須とします。
+
 任意cameraのrequestには、学習済みsceneを途中段階で見せるための
 `appearance_policy`（request全体）とcameraごとの`appearance`を指定できます。
 どちらか一方だけの指定は拒否します。値はすべて`[0, 1]`で、すべて1のとき通常の
