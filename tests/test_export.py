@@ -5,10 +5,11 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from PIL import Image
+
 from nht_pipeline.export import load_validated_scene_export, validate_scene_export
 from nht_pipeline.render import render_scene
 from nht_pipeline.schema import schema_validator, validate_schema_payload
-from PIL import Image
 
 
 def _valid_export(tmp_path):
